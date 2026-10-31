@@ -183,11 +183,13 @@ class CCardBoard
     }
 
     /**
-     * For each card, the open cards it still waits on.
+     * For each card, the open cards it still waits on. Blockers the user
+     * can see come with their name; ones they can't (a private task) are
+     * only counted, as a single entry with id 0 and hidden set.
      *
      * @param int[] $ids
      *
-     * @return array<int, array<int, array{id:int, key:string}>>
+     * @return array<int, array<int, array{id:int, key:string, name:string, hidden?:int}>>
      */
     protected function waitsOn(array $ids)
     {
@@ -195,22 +197,41 @@ class CCardBoard
             return array();
         }
         $closed = CCardStatuses::closedIds();
+        $open = $closed ? ' AND c.card_status NOT IN (' . implode(',', $closed) . ')' : '';
+
+        // Open blockers the user may see, with their names.
         $q = new w2p_Database_Query();
         $q->addTable('card_dependencies', 'd');
-        $q->innerJoin('cards', 'r', 'r.card_id = d.dependency_requires');
-        $q->innerJoin('projects', 'p', 'p.project_id = r.card_project');
-        $q->addQuery('d.dependency_card, r.card_id, p.project_short_name');
-        $q->addWhere('d.dependency_card IN (' . implode(',', $ids) . ')');
-        if ($closed) {
-            $q->addWhere('r.card_status NOT IN (' . implode(',', $closed) . ')');
-        }
+        $q->innerJoin('cards', 'c', 'c.card_id = d.dependency_requires');
+        $q->addQuery('d.dependency_card, c.card_id, c.card_name, p.project_short_name');
+        $this->access->restrict($q);
+        $q->addWhere('d.dependency_card IN (' . implode(',', $ids) . ')' . $open);
+        $q->addOrder('c.card_rank, c.card_id');
         $result = array();
+        $shown = array();
         foreach ($q->loadList() as $row) {
             $prefix = trim((string) $row['project_short_name']);
             $result[(int) $row['dependency_card']][] = array(
                 'id' => (int) $row['card_id'],
                 'key' => ('' !== $prefix ? $prefix : 'CARD') . '-' . (int) $row['card_id'],
+                'name' => html_entity_decode((string) $row['card_name'], ENT_QUOTES, 'UTF-8'),
             );
+            $shown[(int) $row['dependency_card']] = (isset($shown[(int) $row['dependency_card']]) ? $shown[(int) $row['dependency_card']] : 0) + 1;
+        }
+
+        // All open blockers, to count the ones the user can't see.
+        $q = new w2p_Database_Query();
+        $q->addTable('card_dependencies', 'd');
+        $q->innerJoin('cards', 'c', 'c.card_id = d.dependency_requires');
+        $q->addQuery('d.dependency_card, COUNT(*) AS blockers');
+        $q->addWhere('d.dependency_card IN (' . implode(',', $ids) . ')' . $open);
+        $q->addGroup('d.dependency_card');
+        foreach ($q->loadList() as $row) {
+            $cardId = (int) $row['dependency_card'];
+            $hidden = (int) $row['blockers'] - (isset($shown[$cardId]) ? $shown[$cardId] : 0);
+            if ($hidden > 0) {
+                $result[$cardId][] = array('id' => 0, 'key' => '', 'name' => '', 'hidden' => $hidden);
+            }
         }
 
         return $result;

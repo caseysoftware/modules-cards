@@ -74,6 +74,16 @@ def main():
     check(code == 200 and home in ids(wboard) and shed in ids(wboard), 'worker sees visible cards from every project')
     check(secret not in ids(wboard), 'card on a private task stays hidden')
 
+    print('== waiting-on names')
+    admin.call('dependency_add', {'card_id': home, 'requires': secret})
+    b = admin.call('board', {'project_id': PROJECT})[1]['data']['board']
+    check([w['name'] for w in card(b, home)['waits_on']] == ['Secret inspection %s' % tag], 'waiting-on lists the blocking card by name')
+    wb = worker.call('board', {'project_id': PROJECT})[1]['data']['board']
+    w = card(wb, home)['waits_on']
+    check(len(w) == 1 and w[0].get('hidden') == 1 and not w[0]['name'] and not w[0]['id'], 'a blocker on a private task is counted, not named')
+    check('Secret inspection' not in str(wb), 'its name appears nowhere in the worker\'s board')
+    admin.call('dependency_remove', {'card_id': home, 'requires': secret})
+
     print('== moves on the all-projects board')
     c = card(board, shed)
     code, body = admin.call('move', {'board': ALL, 'card_id': shed, 'version': c['version'], 'group': 'status',

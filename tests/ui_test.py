@@ -54,7 +54,16 @@ def main():
     # Sample cards through the API, so the browser has something to work with.
     def create(name, status, **fields):
         fields.update({'name': name, 'status': statuses[status]})
-        return api.call('create', {'project_id': PROJECT, 'fields': fields})[1]['data']['created']
+        data = api.call('create', {'project_id': PROJECT, 'fields': fields})[1]['data']
+        created = data['created']
+        # Put it at the top of its column, so the test works on a database
+        # that earlier runs have filled with cards.
+        column = [c for c in data['board']['cards'] if c['status'] == statuses[status] and c['id'] != created]
+        mine = card(data['board'], created)
+        if column:
+            api.call('move', {'card_id': created, 'version': mine['version'], 'group': 'status', 'value': None,
+                              'before': 0, 'after': column[0]['id']})
+        return created
     c1 = create('Confirm truss delivery', 'To Do', priority=1, due='2026-11-12', task=tasks[5]['id'])
     c2 = create('Order window flashing', 'To Do', task=tasks[7]['id'])
     c3 = create('Frame interior walls', 'In Progress', priority=1, task=tasks[5]['id'])
@@ -85,7 +94,7 @@ def main():
         page.wait_for_selector('.w2p-cards-column')
         headers = page.locator('.w2p-cards-column-header h3').all_inner_texts()
         check(headers == ['Backlog', 'To Do', 'In Progress', 'Review', 'Done'], 'columns from the global status list')
-        check(page.locator('.w2p-cards-card[data-id="%d"] .w2p-cards-blocked' % c2).inner_text().startswith('Waiting on'), 'waiting-on badge shown')
+        check(page.locator('.w2p-cards-card[data-id="%d"] .w2p-cards-blocked' % c2).inner_text() == 'Waiting on Moisture test on slab', 'waiting-on badge names the blocking card')
         evil_text = page.locator('.w2p-cards-card[data-id="%d"] .w2p-cards-name' % evil).inner_text()
         check('<img' in evil_text and page.evaluate('window.__xss') is None, 'card text is shown as text, not markup')
         if shots:

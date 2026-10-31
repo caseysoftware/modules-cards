@@ -61,6 +61,20 @@
         return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
     }
 
+    /** "Order windows, Pour slab and 1 card you can't see" */
+    function waitingOn(list) {
+        var names = [];
+        (list || []).forEach(function (w) {
+            if (w.hidden) {
+                names.push(w.hidden + (w.hidden === 1 ? ' card' : ' cards') + ' you can\'t see');
+            } else {
+                names.push(w.name);
+            }
+        });
+        if (names.length < 2) { return names.join(''); }
+        return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+    }
+
     var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
     /** "2026-11-12" -> "Nov 12" ("Nov 12, 2027" outside the current year). */
@@ -462,7 +476,8 @@
         if (fields.dependencies && card.waits_on.length) {
             parts.push(el('div', {
                 className: 'w2p-cards-blocked',
-                text: 'Waiting on ' + card.waits_on.map(function (w) { return pill ? '#' + w.id : w.key; }).join(', ')
+                text: 'Waiting on ' + waitingOn(card.waits_on),
+                title: card.waits_on.filter(function (w) { return w.id; }).map(function (w) { return w.key; }).join(', ')
             }));
         }
 
@@ -537,7 +552,7 @@
                     checks = checks.then(function (ok) {
                         return ok && self.confirmDialog(
                             card.key + ' ' + card.name,
-                            'Still waiting on ' + card.waits_on.map(function (w) { return w.key; }).join(', ') + '.',
+                            'Still waiting on ' + waitingOn(card.waits_on) + '.',
                             'Move anyway');
                     });
                 }
@@ -998,7 +1013,7 @@
             if (boardCard.waits_on.length) {
                 checks = checks.then(function (ok) {
                     return ok && self.confirmDialog(card.key + ' ' + card.name,
-                        'Still waiting on ' + boardCard.waits_on.map(function (w) { return w.key; }).join(', ') + '.', 'Move anyway');
+                        'Still waiting on ' + waitingOn(boardCard.waits_on) + '.', 'Move anyway');
                 });
             }
             var open = boardCard.subcards - boardCard.subcards_done;
