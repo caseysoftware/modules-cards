@@ -34,12 +34,22 @@ modules-cards #1 for how cards relate to tasks.
 
 ## Install
 
-The module's folder must be named `cards`:
+The module is the `cards/` folder of this repository. It goes into
+web2project's `modules/` folder, still named `cards`. Copy it:
 
 ```bash
-cd /path/to/web2project/modules
-git clone https://github.com/caseysoftware/modules-cards.git cards
+git clone https://github.com/caseysoftware/modules-cards.git
+cp -R modules-cards/cards /path/to/web2project/modules/cards
 ```
+
+or link it, so a `git pull` updates the module:
+
+```bash
+ln -s "$(pwd)/modules-cards/cards" /path/to/web2project/modules/cards
+```
+
+(With Apache, symlinks need `Options +FollowSymLinks`, which web2project's
+`.htaccess` already sets.)
 
 Then, as an administrator:
 
@@ -135,6 +145,8 @@ same handlers will run immediately; the sweep stays as a backstop.
 
 ## Development
 
+Everything below is inside `cards/`.
+
 ```
 cards.class.php           CCard: module main class; search, calendar and cron hooks
 setup.php                 install, remove, upgrade
@@ -166,9 +178,10 @@ one row. Ranks are rebalanced per project when they grow long.
 The Python tests run against a web2project instance with its demo data
 (`dev/demo-data/setup.sh` in web2project) and the module installed and
 active. They need `requests`, `playwright` (with Chromium) and the `mysql`
-client.
+client. Run them from the `cards/` folder:
 
 ```bash
+cd cards
 php tests/rank_test.php
 python3 tests/api_test.py
 W2P_DIR=/path/to/web2project python3 tests/allview_test.py   # after api_test.py
@@ -193,7 +206,8 @@ W2P_DIR=/path/to/web2project python3 tests/sweep_test.py   # run last: it moves 
 
 ## Upgrading
 
-From 0.1.0: copy the new files over, then **System Admin → View Modules →
+From 0.1.0: copy the new `cards/` folder over the installed one (or
+`git pull` a linked install), then **System Admin → View Modules →
 upgrade** on Cards. 0.2.0 registers cards as permission items so Smart
 Search and History can check single cards.
 
