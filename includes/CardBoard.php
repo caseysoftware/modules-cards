@@ -1,0 +1,289 @@
+<?php
+/**
+ * Reads for the board, the card drawer and the Task tab, already limited to
+ * what the current user may see (CCardAccess).
+ *
+ * @package web2project\modules\cards
+ */
+class CCardBoard
+{
+    /** @var w2p_Core_CAppUI */
+    protected $AppUI;
+
+    /** @var CCardAccess */
+    protected $access;
+
+    public function __construct(w2p_Core_CAppUI $AppUI, CCardAccess $access)
+    {
+        $this->AppUI = $AppUI;
+        $this->access = $access;
+    }
+
+    /**
+     * Everything the board needs for one project.
+     *
+     * @param int $projectId
+     *
+     * @return array<string, mixed>
+     */
+    public function board($projectId)
+    {
+        $projectId = (int) $projectId;
+        $q = new w2p_Database_Query();
+        $q->addTable('projects');
+        $q->addQuery('project_id, project_name, project_short_name');
+        $q->addWhere('project_id = ' . $projectId);
+        $project = $q->loadHash();
+
+        $cards = $this->cardRows('(' . CCardAccess::effectiveProject() . ') = ' . $projectId);
+
+        $tagIds = array();
+        foreach ($cards as $card) {
+            $tagIds = array_merge($tagIds, $card['tags']);
+        }
+
+        return array(
+            'project' => array(
+                'id' => (int) $project['project_id'],
+                'name' => html_entity_decode((string) $project['project_name'], ENT_QUOTES, 'UTF-8'),
+                'short_name' => $project['project_short_name'],
+            ),
+            'statuses' => CCardStatuses::all(),
+            'settings' => CCardSettings::forProject($projectId),
+            'cards' => $cards,
+            'tags' => $this->pairs(CCardTags::all()),
+            'users' => $this->users(),
+            'tasks' => $this->pairs($this->access->visibleTasks($projectId)),
+            'can' => array(
+                'add' => $this->access->can('add'),
+                'edit' => $this->access->can('edit'),
+                'delete' => $this->access->can('delete'),
+                'configure' => $this->access->canConfigure($projectId),
+                'statuses' => $this->access->canManageStatuses(),
+            ),
+        );
+    }
+
+    /**
+     * Visible cards matching a condition on `cards c` (joined with
+     * `tasks t`), shaped for the board, in rank order.
+     *
+     * @param string $where
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function cardRows($where)
+    {
+        $q = new w2p_Database_Query();
+        $q->addTable('cards', 'c');
+        $q->addQuery('c.*, p.project_short_name, t.task_name, t.task_project');
+        $this->access->restrict($q);
+        $q->addWhere($where);
+        $q->addOrder('c.card_rank, c.card_id');
+        $rows = $q->loadList();
+
+        $ids = array();
+        foreach ($rows as $row) {
+            $ids[] = (int) $row['card_id'];
+        }
+        $tags = CCardTags::forCards($ids);
+        $waitsOn = $this->waitsOn($ids);
+        $closed = CCardStatuses::closedIds();
+
+        // Subcard counts: every visible child, whether or not it is in $rows.
+        $children = array();
+        if ($ids) {
+            $k = new w2p_Database_Query();
+            $k->addTable('cards', 'c');
+            $k->addQuery('c.card_parent, c.card_status');
+            $this->access->restrict($k);
+            $k->addWhere('c.card_parent IN (' . implode(',', $ids) . ')');
+            foreach ($k->loadList() as $kid) {
+                $children[(int) $kid['card_parent']][] = $kid;
+            }
+        }
+
+        $cards = array();
+        foreach ($rows as $row) {
+            $id = (int) $row['card_id'];
+            $kids = isset($children[$id]) ? $children[$id] : array();
+            $kidsDone = 0;
+            foreach ($kids as $kid) {
+                if (in_array((int) $kid['card_status'], $closed, true)) {
+                    $kidsDone++;
+                }
+            }
+            $prefix = trim((string) $row['project_short_name']);
+            $cards[] = array(
+                'id' => $id,
+                'key' => ('' !== $prefix ? $prefix : 'CARD') . '-' . $id,
+                'name' => $row['card_name'],
+                'project' => (int) $row['card_project'],
+                'status' => (int) $row['card_status'],
+                'priority' => (int) $row['card_priority'],
+                'owner' => (int) $row['card_owner'],
+                'due' => $row['card_due_date'] ? substr($row['card_due_date'], 0, 10) : '',
+                'task' => (int) $row['card_task'],
+                'task_name' => (int) $row['card_task'] ? html_entity_decode((string) $row['task_name'], ENT_QUOTES, 'UTF-8') : '',
+                'parent' => (int) $row['card_parent'],
+                'rank' => $row['card_rank'],
+                'version' => (int) $row['card_version'],
+                'tags' => isset($tags[$id]) ? $tags[$id] : array(),
+                'waits_on' => isset($waitsOn[$id]) ? $waitsOn[$id] : array(),
+                'subcards' => count($kids),
+                'subcards_done' => $kidsDone,
+            );
+        }
+
+        return $cards;
+    }
+
+    /**
+     * For each card, the open cards it still waits on.
+     *
+     * @param int[] $ids
+     *
+     * @return array<int, array<int, array{id:int, key:string}>>
+     */
+    protected function waitsOn(array $ids)
+    {
+        if (!$ids) {
+            return array();
+        }
+        $closed = CCardStatuses::closedIds();
+        $q = new w2p_Database_Query();
+        $q->addTable('card_dependencies', 'd');
+        $q->innerJoin('cards', 'r', 'r.card_id = d.dependency_requires');
+        $q->innerJoin('projects', 'p', 'p.project_id = r.card_project');
+        $q->addQuery('d.dependency_card, r.card_id, p.project_short_name');
+        $q->addWhere('d.dependency_card IN (' . implode(',', $ids) . ')');
+        if ($closed) {
+            $q->addWhere('r.card_status NOT IN (' . implode(',', $closed) . ')');
+        }
+        $result = array();
+        foreach ($q->loadList() as $row) {
+            $prefix = trim((string) $row['project_short_name']);
+            $result[(int) $row['dependency_card']][] = array(
+                'id' => (int) $row['card_id'],
+                'key' => ('' !== $prefix ? $prefix : 'CARD') . '-' . (int) $row['card_id'],
+            );
+        }
+
+        return $result;
+    }
+
+    /**
+     * Everything the drawer shows for one card.
+     *
+     * @param int $cardId
+     *
+     * @return array<string, mixed>|null null if the user can't see it
+     */
+    public function card($cardId)
+    {
+        $rows = $this->cardRows('c.card_id = ' . (int) $cardId);
+        if (!$rows) {
+            return null;
+        }
+        $card = $rows[0];
+        $row = CCardStore::load($cardId);
+        $card['description'] = (string) $row['card_description'];
+        $card['created'] = $row['card_created'];
+        $card['creator_name'] = CCardStore::userName((int) $row['card_creator']);
+
+        $card['subcard_list'] = $this->cardRows('c.card_parent = ' . (int) $cardId);
+        $closed = CCardStatuses::closedIds();
+        $card['subcards'] = count($card['subcard_list']);
+        $card['subcards_done'] = 0;
+        foreach ($card['subcard_list'] as $sub) {
+            if (in_array($sub['status'], $closed, true)) {
+                $card['subcards_done']++;
+            }
+        }
+        if ($card['parent']) {
+            $parent = $this->cardRows('c.card_id = ' . (int) $card['parent']);
+            $card['parent_card'] = $parent ? $parent[0] : null;
+        }
+
+        $q = new w2p_Database_Query();
+        $q->addTable('card_dependencies');
+        $q->addQuery('dependency_requires');
+        $q->addWhere('dependency_card = ' . (int) $cardId);
+        $waitsOnIds = array_map('intval', $q->loadColumn());
+        $q = new w2p_Database_Query();
+        $q->addTable('card_dependencies');
+        $q->addQuery('dependency_card');
+        $q->addWhere('dependency_requires = ' . (int) $cardId);
+        $blocksIds = array_map('intval', $q->loadColumn());
+
+        $card['waits_on_list'] = $waitsOnIds ? $this->cardRows('c.card_id IN (' . implode(',', $waitsOnIds) . ')') : array();
+        $card['blocks_list'] = $blocksIds ? $this->cardRows('c.card_id IN (' . implode(',', $blocksIds) . ')') : array();
+        // Relationships with cards this user can't see are counted, not shown.
+        $card['hidden_relations'] = count($waitsOnIds) + count($blocksIds)
+            - count($card['waits_on_list']) - count($card['blocks_list']);
+
+        $card['activity'] = CCardActivity::forCard($cardId);
+        $card['tag_names'] = CCardTags::names($card['tags']);
+
+        return $card;
+    }
+
+    /**
+     * Cards on a task and, optionally, on its subtasks (marked "via").
+     *
+     * @param int  $taskId
+     * @param bool $withSubtasks
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function taskCards($taskId, $withSubtasks)
+    {
+        $taskIds = array((int) $taskId);
+        if ($withSubtasks) {
+            $frontier = array((int) $taskId);
+            while ($frontier) {
+                $q = new w2p_Database_Query();
+                $q->addTable('tasks');
+                $q->addQuery('task_id');
+                $q->addWhere('task_parent IN (' . implode(',', $frontier) . ')');
+                $q->addWhere('task_parent <> task_id');
+                $kids = array_diff(array_map('intval', $q->loadColumn()), $taskIds);
+                $taskIds = array_merge($taskIds, $kids);
+                $frontier = $kids;
+            }
+        }
+
+        return $this->cardRows('c.card_task IN (' . implode(',', $taskIds) . ')');
+    }
+
+    /**
+     * Users who can use the Cards module, for owner pickers.
+     *
+     * @return array<int, array{id:int, name:string}>
+     */
+    public function users()
+    {
+        $perms = $this->AppUI->acl();
+        $users = array();
+        foreach ($perms->getPermittedUsers('cards') as $id => $name) {
+            $users[] = array('id' => (int) $id, 'name' => html_entity_decode((string) $name, ENT_QUOTES, 'UTF-8'));
+        }
+
+        return $users;
+    }
+
+    /**
+     * @param array<int, string> $hash
+     *
+     * @return array<int, array{id:int, name:string}>
+     */
+    protected function pairs(array $hash)
+    {
+        $list = array();
+        foreach ($hash as $id => $name) {
+            $list[] = array('id' => (int) $id, 'name' => html_entity_decode((string) $name, ENT_QUOTES, 'UTF-8'));
+        }
+
+        return $list;
+    }
+}
