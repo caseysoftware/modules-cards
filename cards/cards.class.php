@@ -257,7 +257,7 @@ class CCard extends w2p_Core_BaseObject
 
         return array(
             'href' => '?m=cards&card=' . (int) $item['id'],
-            'alt' => CCardView::e($this->_AppUI->_('Card due') . ': ' . $label),
+            'alt' => CCardView::e($this->_AppUI->_('Card due', UI_OUTPUT_RAW) . ': ' . $label),
             'text' => '<span class="w2p-cards-cal">' . CCardView::e($label) . '</span>',
         );
     }

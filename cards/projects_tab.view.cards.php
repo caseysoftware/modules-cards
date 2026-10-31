@@ -14,7 +14,7 @@ global $AppUI, $project_id;
 
 $access = new CCardAccess($AppUI);
 if (!$access->canSeeProject((int) $project_id)) {
-    echo '<p>' . CCardView::e($AppUI->_('You can\'t see the cards of this project.')) . '</p>';
+    echo '<p>' . CCardView::e($AppUI->_('You can\'t see the cards of this project.', UI_OUTPUT_RAW)) . '</p>';
     return;
 }
 

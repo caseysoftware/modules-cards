@@ -20,9 +20,9 @@ $titleBlock->addCrumb('?m=cards', 'cards');
 $titleBlock->show();
 
 $categories = array(
-    CCardStatuses::NOT_STARTED => $AppUI->_('Not started'),
-    CCardStatuses::STARTED => $AppUI->_('Started'),
-    CCardStatuses::CLOSED => $AppUI->_('Closed'),
+    CCardStatuses::NOT_STARTED => $AppUI->_('Not started', UI_OUTPUT_RAW),
+    CCardStatuses::STARTED => $AppUI->_('Started', UI_OUTPUT_RAW),
+    CCardStatuses::CLOSED => $AppUI->_('Closed', UI_OUTPUT_RAW),
 );
 $row = function ($status) use ($categories) {
     $html = '<tr class="w2p-cards-status-row">';
@@ -42,10 +42,10 @@ $row = function ($status) use ($categories) {
 ?>
 <form name="statusFrm" action="?m=cards" method="post" accept-charset="utf-8" class="w2p-cards-statuses">
     <input type="hidden" name="dosql" value="do_statuses_aed" />
-    <p><?php echo CCardView::e($AppUI->_('These statuses are the columns of every project\'s board. "Counts as" tells boards and counts which statuses mean not started, started and closed. A status that still has cards can\'t be removed.')); ?></p>
+    <p><?php echo CCardView::e($AppUI->_('These statuses are the columns of every project\'s board. "Counts as" tells boards and counts which statuses mean not started, started and closed. A status that still has cards can\'t be removed.', UI_OUTPUT_RAW)); ?></p>
     <table class="tbl list">
         <thead>
-            <tr><th></th><th><?php echo CCardView::e($AppUI->_('Status')); ?></th><th><?php echo CCardView::e($AppUI->_('Counts as')); ?></th><th></th></tr>
+            <tr><th></th><th><?php echo CCardView::e($AppUI->_('Status', UI_OUTPUT_RAW)); ?></th><th><?php echo CCardView::e($AppUI->_('Counts as', UI_OUTPUT_RAW)); ?></th><th></th></tr>
         </thead>
         <tbody id="w2p-cards-status-rows">
             <?php foreach (CCardStatuses::all() as $status) {
@@ -55,8 +55,8 @@ $row = function ($status) use ($categories) {
     </table>
     <template id="w2p-cards-status-template"><?php echo $row(array('id' => 0, 'name' => '', 'category' => 0)); ?></template>
     <p>
-        <button type="button" class="button" id="w2p-cards-status-add"><?php echo CCardView::e($AppUI->_('Add a status')); ?></button>
-        <input type="submit" class="button" value="<?php echo CCardView::e($AppUI->_('Save')); ?>" />
+        <button type="button" class="button" id="w2p-cards-status-add"><?php echo CCardView::e($AppUI->_('Add a status', UI_OUTPUT_RAW)); ?></button>
+        <input type="submit" class="button" value="<?php echo CCardView::e($AppUI->_('Save', UI_OUTPUT_RAW)); ?>" />
     </p>
 </form>
 <script type="text/javascript">

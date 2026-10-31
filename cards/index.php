@@ -48,14 +48,14 @@ if ($openCard) {
 }
 if (!isset($projects[$projectId])) {
     if ($requested && isset($visible[$projectId])) {
-        $projects[$projectId] = $visible[$projectId]['name'] . ' (' . $AppUI->_('inactive') . ')';
+        $projects[$projectId] = $visible[$projectId]['name'] . ' (' . $AppUI->_('inactive', UI_OUTPUT_RAW) . ')';
     } else {
         $projectId = CCardBoard::ALL;
     }
 }
 
 $titleBlock = new w2p_Theme_TitleBlock('Cards', 'icon.png', $m);
-$titleBlock->addFilterCell('Project', 'project_id', array(CCardBoard::ALL => $AppUI->_('All projects')) + $projects, $projectId);
+$titleBlock->addFilterCell('Project', 'project_id', array(CCardBoard::ALL => $AppUI->_('All projects', UI_OUTPUT_RAW)) + $projects, $projectId);
 if (CCardBoard::ALL !== $projectId) {
     $titleBlock->addCrumb('?m=projects&a=view&project_id=' . $projectId, 'view this project');
 }

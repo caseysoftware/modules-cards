@@ -78,7 +78,7 @@ class CCardBoard
 
         return array(
             'all' => true,
-            'project' => array('id' => self::ALL, 'name' => $this->AppUI->_('All projects'), 'short_name' => ''),
+            'project' => array('id' => self::ALL, 'name' => $this->AppUI->_('All projects', UI_OUTPUT_RAW), 'short_name' => ''),
             'projects' => $projects,
             'statuses' => CCardStatuses::all(),
             'settings' => CCardSettings::defaults(),

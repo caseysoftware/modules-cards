@@ -51,8 +51,8 @@ class CCardView
 
         echo '<div class="w2p-cards" data-options="'
             . htmlspecialchars(json_encode($options), ENT_QUOTES, 'UTF-8') . '">'
-            . '<p class="w2p-cards-loading">' . htmlspecialchars($AppUI->_('Loading cards...'), ENT_QUOTES, 'UTF-8') . '</p>'
-            . '<noscript>' . htmlspecialchars($AppUI->_('The board needs JavaScript.'), ENT_QUOTES, 'UTF-8') . '</noscript>'
+            . '<p class="w2p-cards-loading">' . htmlspecialchars($AppUI->_('Loading cards...', UI_OUTPUT_RAW), ENT_QUOTES, 'UTF-8') . '</p>'
+            . '<noscript>' . htmlspecialchars($AppUI->_('The board needs JavaScript.', UI_OUTPUT_RAW), ENT_QUOTES, 'UTF-8') . '</noscript>'
             . '</div>';
     }
 
