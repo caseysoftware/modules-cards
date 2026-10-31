@@ -26,6 +26,10 @@ attached to a project and optionally to one of its tasks.
 Cards are stored on their own; they don't change web2project tasks. See
 modules-cards #1 for how cards relate to tasks.
 
+![The Cards board](screenshots/01-board.png)
+
+More in [screenshots/](screenshots/README.md), one for each wireframe.
+
 ## Requirements
 
 - web2project 5 (built against the `dev-5.0.0` branch)
