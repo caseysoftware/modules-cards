@@ -100,6 +100,20 @@ def main():
         page.wait_for_selector('.w2p-cards-card:has-text("%s")' % lift)
         check(True, 'card added inline in its column')
 
+        print('== new card dialog')
+        page.click('.w2p-cards-toolbar button:has-text("+ New card")')
+        dialog_name = 'Book the crane %d' % c1
+        page.fill('.w2p-cards-dialog input[aria-label="Card name"]', dialog_name)
+        page.click('.w2p-cards-dialog button:has-text("Create")')
+        page.wait_for_selector('.w2p-cards-card:has-text("%s")' % dialog_name)
+        page.wait_for_timeout(500)
+        check(page.locator('.w2p-cards-drawer').count() == 0, 'a new card shows on the board without opening it')
+        page.click('.w2p-cards-card:has-text("%s")' % dialog_name)
+        page.wait_for_selector('.w2p-cards-drawer')
+        check(page.input_value('.w2p-cards-drawer input[aria-label="Card name"]') == dialog_name, 'it opens with a click')
+        page.keyboard.press('Escape')
+        page.wait_for_selector('.w2p-cards-drawer', state='detached')
+
         print('== drag and drop')
         src = page.locator('.w2p-cards-card[data-id="%d"]' % c1)
         target_list = page.locator('.w2p-cards-column', has=page.locator('h3', has_text='In Progress')).locator('.w2p-cards-list')
@@ -204,6 +218,56 @@ def main():
         check(any('Confirm truss delivery' in r for r in rows) and any('Frame interior walls' in r for r in rows), 'Cards tab on the task view lists its cards')
         if shots:
             page.screenshot(path=os.path.join(shots, '6-task-tab.png'), full_page=True)
+
+        print('== all projects')
+        other = sql("select project_id from projects where project_short_name = 'Shed'")
+        other = int(other[0][0]) if other else 0
+        if other:
+            shed = api.call('create', {'project_id': other, 'fields': {'name': 'Frame shed walls %d' % c1, 'status': statuses['To Do']}})[1]['data']['created']
+        page.goto(BASE + '/index.php?m=cards&project_id=-1')
+        page.wait_for_selector('.w2p-cards-column')
+        names = page.locator('.w2p-cards-project').all_inner_texts()
+        check(len(set(names)) >= (2 if other else 1), 'cards from several projects, each showing its project (%s)' % sorted(set(names)))
+        check(page.locator('.w2p-cards-add').count() == 0 and page.locator('.w2p-cards-wip').count() == 0, 'no inline add or WIP badges across projects')
+        groups = page.locator('.w2p-cards-toolbar select[aria-label="Group by"] option').all_inner_texts()
+        check('Project' in groups and 'Linked task' not in groups, 'group by project instead of linked task')
+        if shots:
+            page.screenshot(path=os.path.join(shots, '7-all-projects.png'))
+        if other:
+            src = page.locator('.w2p-cards-card[data-id="%d"]' % shed)
+            review = page.locator('.w2p-cards-column', has=page.locator('h3', has_text='Review')).locator('.w2p-cards-list')
+            drag(page, src, review)
+            page.wait_for_timeout(800)
+            row = sql('select card_status, card_project from cards where card_id = %d' % shed)[0]
+            check(int(row[0]) == statuses['Review'] and int(row[1]) == other, 'dragging changes the status; the project stays')
+            page.select_option('.w2p-cards-toolbar select[aria-label="Group by"]', 'project')
+            page.wait_for_selector('.w2p-cards-column h3:has-text("Backyard shed")')
+            src = page.locator('.w2p-cards-card[data-id="%d"]' % shed)
+            home_col = page.locator('.w2p-cards-column', has=page.locator('h3', has_text='Build Family Home')).locator('.w2p-cards-list')
+            drag(page, src, home_col)
+            page.wait_for_timeout(800)
+            check(int(sql('select card_project from cards where card_id = %d' % shed)[0][0]) == other, 'a card can\'t be dragged into another project')
+            check(page.locator('.w2p-cards-column', has=page.locator('h3', has_text='Backyard shed')).locator('.w2p-cards-card[data-id="%d"]' % shed).count() == 1, 'and it stays in its project\'s column')
+            page.select_option('.w2p-cards-toolbar select[aria-label="Group by"]', 'status')
+        page.click('.w2p-cards-toolbar button:has-text("+ New card")')
+        check(page.locator('.w2p-cards-dialog select[aria-label="Project"]').count() == 1, 'new card asks for the project')
+        page.click('.w2p-cards-dialog button:has-text("Create")')
+        check('Pick a project' in page.locator('.w2p-cards-error').inner_text(), 'and requires one')
+        page.click('.w2p-cards-dialog button:has-text("Cancel")')
+        page.click('.w2p-cards-toolbar button:has-text("Default settings")')
+        check(page.locator('.w2p-cards-dialog h3').inner_text() == 'Default board settings', 'administrators edit the default settings here')
+        page.click('.w2p-cards-dialog button:has-text("Cancel")')
+
+        print('== calendar')
+        today = __import__('datetime').date.today().isoformat()
+        api.call('update', {'card_id': c4, 'version': card(api.call('board', {'project_id': PROJECT})[1]['data']['board'], c4)['version'], 'fields': {'due': today, 'owner': 1}})
+        page.goto(BASE + '/index.php?m=events')
+        link = page.locator('a[href="?m=cards&card=%d"]' % c4)
+        check(link.count() == 1, 'the card shows on the month view on its due date')
+        link.click()
+        page.wait_for_selector('.w2p-cards-drawer')
+        page.wait_for_selector('.w2p-cards-drawer input[aria-label="Card name"]')
+        check(page.input_value('.w2p-cards-drawer input[aria-label="Card name"]') == 'Moisture test on slab', 'clicking it opens the card')
 
         print('== console')
         check(not errors, 'no browser errors (%s)' % errors[:3])

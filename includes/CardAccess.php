@@ -27,10 +27,14 @@ class CCardAccess
     /** @var int */
     protected $userId;
 
-    public function __construct(w2p_Core_CAppUI $AppUI)
+    /**
+     * @param w2p_Core_CAppUI $AppUI
+     * @param int|null        $userId whose access to check; the current user by default
+     */
+    public function __construct(w2p_Core_CAppUI $AppUI, $userId = null)
     {
         $this->AppUI = $AppUI;
-        $this->userId = (int) $AppUI->user_id;
+        $this->userId = (null === $userId) ? (int) $AppUI->user_id : (int) $userId;
     }
 
     /**
@@ -46,10 +50,10 @@ class CCardAccess
             return false;
         }
         $perms = $this->AppUI->acl();
-        if (!$perms->checkModule('cards', 'access')) {
+        if (!$perms->checkModule('cards', 'access', $this->userId)) {
             return false;
         }
-        return ('access' == $right) ? true : (bool) $perms->checkModule('cards', $right);
+        return ('access' == $right) ? true : (bool) $perms->checkModule('cards', $right, $this->userId);
     }
 
     /**
@@ -64,22 +68,73 @@ class CCardAccess
     {
         $q->innerJoin('projects', 'p', 'p.project_id = c.card_project');
         $q->leftJoin('tasks', 't', 't.task_id = c.card_task');
-
-        if (!$this->can('view')) {
-            $q->addWhere('0 = 1');
-            return $q;
-        }
-
-        // Projects the user may view (projects ACL).
-        $project = new CProject();
-        foreach ($project->getAllowedSQL($this->userId, 'c.card_project') as $condition) {
+        foreach ($this->conditions() as $condition) {
             $q->addWhere($condition);
         }
 
-        // A linked task must still exist and be visible.
-        $q->addWhere('(c.card_task = 0 OR (t.task_id IS NOT NULL AND ' . $this->taskCondition('t') . '))');
-
         return $q;
+    }
+
+    /**
+     * The SQL conditions behind restrict(), for queries built elsewhere
+     * (Smart Search). They expect `cards c`, `projects p` and `tasks t`.
+     *
+     * @return string[]
+     */
+    public function conditions()
+    {
+        if (!$this->can('view')) {
+            return array('0 = 1');
+        }
+
+        // The project must exist and be one the user may view (projects ACL).
+        $conditions = array('p.project_id IS NOT NULL');
+        $project = new CProject();
+        foreach ($project->getAllowedSQL($this->userId, 'c.card_project') as $condition) {
+            $conditions[] = $condition;
+        }
+
+        // A linked task must still exist and be visible.
+        $conditions[] = '(c.card_task = 0 OR (t.task_id IS NOT NULL AND ' . $this->taskCondition('t') . '))';
+
+        // Any per-card denials set in Roles/user permissions.
+        $card = new CCard();
+        foreach ($card->getModuleSQL($this->userId, 'c.card_id') as $condition) {
+            $conditions[] = $condition;
+        }
+
+        return $conditions;
+    }
+
+    /**
+     * The projects this user may see, for pickers and the all-projects view.
+     *
+     * @return array<int, array{id:int, name:string, short_name:string}>
+     */
+    public function visibleProjects()
+    {
+        if (!$this->can('view')) {
+            return array();
+        }
+        $q = new w2p_Database_Query();
+        $q->addTable('projects', 'p');
+        $q->addQuery('p.project_id, p.project_name, p.project_short_name');
+        $project = new CProject();
+        foreach ($project->getAllowedSQL($this->userId, 'p.project_id') as $condition) {
+            $q->addWhere($condition);
+        }
+        $q->addOrder('p.project_name');
+
+        $projects = array();
+        foreach ($q->loadList() as $row) {
+            $projects[] = array(
+                'id' => (int) $row['project_id'],
+                'name' => html_entity_decode((string) $row['project_name'], ENT_QUOTES, 'UTF-8'),
+                'short_name' => html_entity_decode((string) $row['project_short_name'], ENT_QUOTES, 'UTF-8'),
+            );
+        }
+
+        return $projects;
     }
 
     /**
@@ -96,7 +151,7 @@ class CCardAccess
         $parts = $acl ? $acl : array('1 = 1');
 
         // Admins (System view) see every task, as in CTask::canAccess().
-        if (!canView('system')) {
+        if (!$this->AppUI->acl()->checkModule('system', 'view', $this->userId)) {
             $uid = $this->userId;
             $assigned = 'EXISTS (SELECT 1 FROM user_tasks ut WHERE ut.task_id = ' . $t . '.task_id AND ut.user_id = ' . $uid . ')';
             $sameCompany = 'EXISTS (SELECT 1 FROM users u1 JOIN users u2 ON u1.user_company = u2.user_company'
@@ -212,6 +267,11 @@ class CCardAccess
      */
     public function canConfigure($projectId)
     {
+        if (CCardSettings::DEFAULTS == (int) $projectId) {
+            // The default board settings (all-projects view): administrators.
+            return $this->canManageStatuses();
+        }
+
         return $this->can('edit') && canEdit('projects', (int) $projectId);
     }
 

@@ -19,8 +19,12 @@ class CCardBoard
         $this->access = $access;
     }
 
+    /** The board id that means "all projects". */
+    const ALL = -1;
+
     /**
-     * Everything the board needs for one project.
+     * Everything the board needs: one project, or every project the user
+     * may see (ALL).
      *
      * @param int $projectId
      *
@@ -29,38 +33,75 @@ class CCardBoard
     public function board($projectId)
     {
         $projectId = (int) $projectId;
+        if (self::ALL === $projectId) {
+            return $this->boardAll();
+        }
         $q = new w2p_Database_Query();
         $q->addTable('projects');
         $q->addQuery('project_id, project_name, project_short_name');
         $q->addWhere('project_id = ' . $projectId);
         $project = $q->loadHash();
-
-        $cards = $this->cardRows('(' . CCardAccess::effectiveProject() . ') = ' . $projectId);
-
-        $tagIds = array();
-        foreach ($cards as $card) {
-            $tagIds = array_merge($tagIds, $card['tags']);
+        if (!$project) {
+            // No such project (deleted, or 0 for the defaults): show everything.
+            return $this->boardAll();
         }
 
         return array(
+            'all' => false,
             'project' => array(
                 'id' => (int) $project['project_id'],
                 'name' => html_entity_decode((string) $project['project_name'], ENT_QUOTES, 'UTF-8'),
-                'short_name' => $project['project_short_name'],
+                'short_name' => html_entity_decode((string) $project['project_short_name'], ENT_QUOTES, 'UTF-8'),
             ),
+            'projects' => array(),
             'statuses' => CCardStatuses::all(),
             'settings' => CCardSettings::forProject($projectId),
-            'cards' => $cards,
+            'cards' => $this->cardRows('(' . CCardAccess::effectiveProject() . ') = ' . $projectId),
             'tags' => $this->pairs(CCardTags::all()),
             'users' => $this->users(),
             'tasks' => $this->pairs($this->access->visibleTasks($projectId)),
-            'can' => array(
-                'add' => $this->access->can('add'),
-                'edit' => $this->access->can('edit'),
-                'delete' => $this->access->can('delete'),
-                'configure' => $this->access->canConfigure($projectId),
-                'statuses' => $this->access->canManageStatuses(),
-            ),
+            'can' => $this->rights($projectId),
+        );
+    }
+
+    /**
+     * The all-projects board: every card the user may see, grouped by
+     * project within each column, with the default board settings. Cards
+     * can change status (and priority, owner, tags) here, never project.
+     *
+     * @return array<string, mixed>
+     */
+    public function boardAll()
+    {
+        $projects = $this->access->visibleProjects();
+
+        return array(
+            'all' => true,
+            'project' => array('id' => self::ALL, 'name' => $this->AppUI->_('All projects'), 'short_name' => ''),
+            'projects' => $projects,
+            'statuses' => CCardStatuses::all(),
+            'settings' => CCardSettings::defaults(),
+            'cards' => $this->cardRows('1 = 1', 'p.project_name, p.project_id, c.card_rank, c.card_id'),
+            'tags' => $this->pairs(CCardTags::all()),
+            'users' => $this->users(),
+            'tasks' => array(),
+            'can' => $this->rights(CCardSettings::DEFAULTS),
+        );
+    }
+
+    /**
+     * @param int $projectId CCardSettings::DEFAULTS for the all-projects view
+     *
+     * @return array<string, bool>
+     */
+    protected function rights($projectId)
+    {
+        return array(
+            'add' => $this->access->can('add'),
+            'edit' => $this->access->can('edit'),
+            'delete' => $this->access->can('delete'),
+            'configure' => $this->access->canConfigure($projectId),
+            'statuses' => $this->access->canManageStatuses(),
         );
     }
 
@@ -69,17 +110,18 @@ class CCardBoard
      * `tasks t`), shaped for the board, in rank order.
      *
      * @param string $where
+     * @param string $order
      *
      * @return array<int, array<string, mixed>>
      */
-    public function cardRows($where)
+    public function cardRows($where, $order = 'c.card_rank, c.card_id')
     {
         $q = new w2p_Database_Query();
         $q->addTable('cards', 'c');
-        $q->addQuery('c.*, p.project_short_name, t.task_name, t.task_project');
+        $q->addQuery('c.*, p.project_name, p.project_short_name, t.task_name, t.task_project');
         $this->access->restrict($q);
         $q->addWhere($where);
-        $q->addOrder('c.card_rank, c.card_id');
+        $q->addOrder($order);
         $rows = $q->loadList();
 
         $ids = array();
@@ -119,6 +161,7 @@ class CCardBoard
                 'key' => ('' !== $prefix ? $prefix : 'CARD') . '-' . $id,
                 'name' => $row['card_name'],
                 'project' => (int) $row['card_project'],
+                'project_name' => html_entity_decode((string) $row['project_name'], ENT_QUOTES, 'UTF-8'),
                 'status' => (int) $row['card_status'],
                 'priority' => (int) $row['card_priority'],
                 'owner' => (int) $row['card_owner'],
@@ -223,6 +266,9 @@ class CCardBoard
             - count($card['waits_on_list']) - count($card['blocks_list']);
 
         $card['activity'] = CCardActivity::forCard($cardId);
+        // The drawer's task picker: this card's project's tasks, also when
+        // it is opened from the all-projects view.
+        $card['tasks'] = $this->pairs($this->access->visibleTasks($card['project']));
         $card['tag_names'] = CCardTags::names($card['tags']);
 
         return $card;

@@ -3,10 +3,12 @@
 A Kanban board module for web2project 5: cards you drag between columns,
 attached to a project and optionally to one of its tasks.
 
-- **Board per project** with columns from a global status list. Drag cards
+- **All projects board** (the default) with every card you may see, and a
+  **board per project**. Columns come from a global status list. Drag cards
   between columns and within them; the order is kept per project.
-- **Group by** status, priority, owner, linked task or tag. Dropping a card
-  in another column sets that field.
+- **Group by** status, priority, owner, tag, and linked task (project board)
+  or project (all projects board). Dropping a card in another column sets
+  that field.
 - **Card drawer**: name, status, priority, owner, due date, linked task,
   tags, description, subcards, dependencies, and the card's activity log
   with comments.
@@ -17,6 +19,9 @@ attached to a project and optionally to one of its tasks.
 - **Cards tab** on the project view (a compact board) and on the task view
   (the task's cards, plus its sub-tasks' cards marked "via sub-task").
 - **Activity log** (`card_activity`) of every change, kept with the card.
+- **Smart Search** finds cards by name and description, and the **Calendar**
+  (month, week and day views, and your calendar feed) shows your open cards
+  on their due dates.
 
 Cards are stored on their own; they don't change web2project tasks. See
 modules-cards #1 for how cards relate to tasks.
@@ -51,7 +56,7 @@ Removing the module from System Admin drops its tables and all cards.
 
 ## Permissions
 
-Cards have no permission items of their own. A user sees a card when they
+A user sees a card when they
 may view the **Cards** module, may view the card's **project**, and (if the
 card is linked to a task) may see that **task**: the task permissions plus
 the task's access level (public, protected, participant, private), the same
@@ -60,7 +65,13 @@ attached to it.
 
 Adding, changing and deleting cards needs the **add**, **edit** and
 **delete** rights on the Cards module. Board settings need edit rights on
-the project. The global status list needs System edit rights.
+the project. The default board settings and the global status list need
+System edit rights.
+
+The same rules apply everywhere: the boards, the tabs, Smart Search, the
+calendar, and core lookups of single cards (History). Per-card denials set
+in Roles also apply, but they can't grant a card whose project or task the
+user can't see.
 
 ## Statuses, settings and keys
 
@@ -69,10 +80,34 @@ the project. The global status list needs System edit rights.
   cards can't be removed.
 - **Board settings** are per project: which status columns are shown, soft
   WIP limits, and which fields cards show.
+- **Default board settings** (administrators, from the all projects board's
+  **Default settings** button) are what the all projects board uses, and
+  what every project uses until it saves settings of its own. Once a project
+  saves its settings it keeps them. The all projects board shows no WIP
+  limits: those belong to one team's board.
 - **Card keys** look like `CedarLane-42`: the project's short name and the
   card's id. They are display only; everything links by id, so a key keeps
   working after the project's short name changes or the card follows its
   task to another project (the number never changes).
+
+## The all projects board
+
+**Cards** opens on **All projects**: every card you may see, grouped by
+project within each column, each showing its project's name. You can drag
+cards between statuses (and priorities, owners and tags), but never between
+projects: grouped by project, a card can only be reordered within its own
+project's column. **+ New card** asks which project the card is for. Pick a
+project in the title bar for a single project's board.
+
+### Moving a card to another project
+
+Cards don't move between projects on their own. A card changes project only
+with its linked task: link the card to a task, then move that task to the
+other project in its task form (web2project moves its sub-tasks too). The
+card, its subcards and the cards on those sub-tasks follow, and keep their
+ids, so links to them keep working. Any dependency or subcard link that would
+then cross projects is removed and logged. Otherwise, create a new card in
+the other project.
 
 ## Consistency with tasks and projects (modules-cards #3)
 
@@ -96,9 +131,9 @@ same handlers will run immediately; the sweep stays as a backstop.
 ## Development
 
 ```
-cards.class.php           CCard: module main class and cron hook
+cards.class.php           CCard: module main class; search, calendar and cron hooks
 setup.php                 install, remove, upgrade
-index.php                 the board (with project picker)
+index.php                 the board: all projects or one project
 statuses.php              global status list (admins)
 do_card_json.php          JSON endpoint used by the board
 do_statuses_aed.php       saves the status list
@@ -108,7 +143,8 @@ includes/                 CardStore (writes), CardBoard (reads), CardAccess
                           CardActivity, CardTags, CardStatuses, CardSettings,
                           CardJson, CardView
 assets/                   board.js, board.css, vendor/Sortable.min.js
-tests/                    rank_test.php, api_test.py, ui_test.py, sweep_test.py
+tests/                    rank_test.php, api_test.py, allview_test.py,
+                          ui_test.py, sweep_test.py
 ```
 
 The board is plain JavaScript (no build step) plus SortableJS. It posts to
@@ -130,25 +166,31 @@ client.
 ```bash
 php tests/rank_test.php
 python3 tests/api_test.py
+W2P_DIR=/path/to/web2project python3 tests/allview_test.py   # after api_test.py
 python3 tests/ui_test.py --shots /tmp/shots
 W2P_DIR=/path/to/web2project python3 tests/sweep_test.py   # run last: it moves and deletes demo tasks
 ```
 
 ## Not in this version yet
 
-- Swimlanes and a cross-project "My work" board (wireframes 2).
+- Swimlanes (wireframe 2).
 - Real-time handling of task and project changes: waits on
   web2project/web2project#526 (the cron sweep covers it meanwhile).
 - Tags are module-local (`card_tags`) until core tagging
   (web2project/web2project#529); the JSON helper is module-local until
   web2project/web2project#528.
 - Markdown in descriptions and comments (modules-cards #2).
-- Smart Search and Calendar (due dates) hooks.
 - Dragging with the keyboard; the drawer's Status menu moves a card without
   a mouse.
 - Long Done columns are not paged.
-- Card entries written to core History don't show in the History module yet:
-  its permission filter only lists items a module grants per-item rights on.
+- The calendar shows the cards you own; there's no option yet to show
+  everyone's.
+
+## Upgrading
+
+From 0.1.0: copy the new files over, then **System Admin → View Modules →
+upgrade** on Cards. 0.2.0 registers cards as permission items so Smart
+Search and History can check single cards.
 
 ## Third-party
 

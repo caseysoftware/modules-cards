@@ -5,7 +5,7 @@ if (!defined('W2P_BASE_DIR')) {
 
 $config = array();
 $config['mod_name'] = 'Cards';
-$config['mod_version'] = '0.1.0';
+$config['mod_version'] = '0.2.0';
 $config['mod_directory'] = 'cards';
 $config['mod_setup_class'] = 'CSetupCards';
 $config['mod_type'] = 'user';
@@ -14,6 +14,12 @@ $config['mod_ui_icon'] = 'icon.png';
 $config['mod_description'] = 'Kanban boards of cards, attached to projects and optionally to tasks';
 $config['mod_config'] = false;
 $config['mod_main_class'] = 'CCard';
+// Lets web2project check single cards (Smart Search, History). Which cards a
+// user sees is decided by CCard::getAllowedRecords(): the card's project and
+// task, plus any per-card denials set in Roles.
+$config['permissions_item_table'] = 'cards';
+$config['permissions_item_field'] = 'card_id';
+$config['permissions_item_label'] = 'card_name';
 $config['requirements'] = array(
     array('require' => 'php', 'comparator' => '>=', 'version' => '8.1'),
     array('require' => 'web2project', 'comparator' => '>=', 'version' => '5'),
@@ -22,8 +28,8 @@ $config['requirements'] = array(
 /**
  * Installs and removes the Cards module's tables.
  *
- * Card permissions come from the card's project (and its linked task), not
- * from per-card permission items, so no permissions_item_* settings are set.
+ * Card permissions come from the card's project (and its linked task); see
+ * CCardAccess.
  *
  * @package web2project\modules\cards
  */
@@ -156,7 +162,12 @@ class CSetupCards extends w2p_System_Setup
 
     public function upgrade($old_version)
     {
-        // 0.1.0 is the first release; later versions add their steps here.
+        if (version_compare($old_version, '0.2.0', '<')) {
+            // 0.2.0 declares cards as permission items (Smart Search, History);
+            // System Admin stores the new settings, this adds the section.
+            $this->_perms->addModuleSection('cards');
+        }
+
         return true;
     }
 }

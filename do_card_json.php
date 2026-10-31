@@ -35,10 +35,26 @@ $int = function ($key) use ($in) {
 };
 
 /**
- * Sends the board for $projectId, and the drawer's card if one is open.
+ * The board the page is showing ("board": a project id, or -1 for all
+ * projects), else the project the change was made in.
  */
-$respond = function ($projectId, $extra = array()) use ($board, $access, $in) {
-    $data = array('board' => $board->board($projectId));
+$boardFor = function ($projectId) use ($in, $access) {
+    $shown = isset($in['board']) ? (int) $in['board'] : 0;
+    if (!$shown && CCardSettings::DEFAULTS === (int) $projectId) {
+        // The default settings belong to the all-projects board.
+        $shown = CCardBoard::ALL;
+    }
+    if (CCardBoard::ALL === $shown || ($shown && $access->canSeeProject($shown))) {
+        return $shown;
+    }
+    return (int) $projectId;
+};
+
+/**
+ * Sends the board the page is showing, and the drawer's card if one is open.
+ */
+$respond = function ($projectId, $extra = array()) use ($board, $access, $in, $boardFor) {
+    $data = array('board' => $board->board($boardFor($projectId)));
     $open = isset($in['open_card']) ? (int) $in['open_card'] : 0;
     if ($open && $access->canSeeCard($open)) {
         $data['card'] = $board->card($open);
@@ -63,10 +79,10 @@ $requireRight = function ($right) use ($access) {
     }
 };
 
-$failed = function (CCardStore $store, $projectId) use ($board) {
+$failed = function (CCardStore $store, $projectId) use ($board, $boardFor) {
     $errors = $store->getErrors();
     if (isset($errors['conflict'])) {
-        CCardJson::error(409, 'conflict', $errors['conflict'], array(), array('board' => $board->board($projectId)));
+        CCardJson::error(409, 'conflict', $errors['conflict'], array(), array('board' => $board->board($boardFor($projectId))));
     }
     CCardJson::error(400, 'invalid', implode(' ', $errors), $errors);
 };
@@ -83,6 +99,9 @@ $checkTask = function ($taskId, $projectId) use ($access) {
 switch ($op) {
     case 'board':
         $projectId = $int('project_id');
+        if (CCardBoard::ALL === $projectId) {
+            CCardJson::send(array('board' => $board->board(CCardBoard::ALL)));
+        }
         if (!$access->canSeeProject($projectId)) {
             CCardJson::error(404, 'not_found', 'That project doesn\'t exist or you can\'t see it.');
         }
@@ -153,6 +172,12 @@ switch ($op) {
                 break;
             case 'tag':
                 // Handled after the move: drop the old column's tag, add the new one's.
+                break;
+            case 'project':
+                // Reordering within the card's own project is fine; changing it is not.
+                if (null !== $value && (int) $value !== $projectId) {
+                    CCardJson::error(400, 'invalid', 'Cards can\'t be moved between projects. A card changes project only when its linked task moves.');
+                }
                 break;
             default:
                 CCardJson::error(400, 'invalid', 'Unknown grouping.');
@@ -249,8 +274,13 @@ switch ($op) {
         break;
 
     case 'settings':
+        // project_id 0: the default settings (all-projects view), administrators only.
         $projectId = $int('project_id');
-        if (!$access->canSeeProject($projectId) || !$access->canConfigure($projectId)) {
+        if (CCardSettings::DEFAULTS === $projectId) {
+            if (!$access->canConfigure(CCardSettings::DEFAULTS)) {
+                CCardJson::error(403, 'forbidden', 'Only administrators can change the default board settings.');
+            }
+        } elseif (!$access->canSeeProject($projectId) || !$access->canConfigure($projectId)) {
             CCardJson::error(403, 'forbidden', 'You need edit rights on this project to change its board.');
         }
         CCardSettings::save($projectId, isset($in['settings']) && is_array($in['settings']) ? $in['settings'] : array());

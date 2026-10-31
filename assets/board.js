@@ -73,6 +73,9 @@
         this.root = root;
         this.options = options;
         this.compact = options.mode === 'compact';
+        // All projects: every visible card, default settings, no project changes.
+        this.isAll = options.projectId === -1;
+        this.viewKey = 'w2p-cards-view' + (this.isAll ? '-all' : '');
         this.data = null;
         this.group = 'status';
         this.filters = { owner: '', tag: '', q: '', subcards: true };
@@ -82,8 +85,12 @@
         this.busy = false;
 
         try {
-            var saved = JSON.parse(window.localStorage.getItem('w2p-cards-view') || '{}');
+            var saved = JSON.parse(window.localStorage.getItem(this.viewKey) || '{}');
             if (saved.group) { this.group = saved.group; }
+            // Linked task only makes sense in one project; project only across them.
+            if ((this.isAll && saved.group === 'task') || (!this.isAll && saved.group === 'project')) {
+                this.group = 'status';
+            }
             if (typeof saved.subcards === 'boolean') { this.filters.subcards = saved.subcards; }
         } catch (e) { /* storage unavailable: use the defaults */ }
 
@@ -106,7 +113,7 @@
 
     Board.prototype.saveView = function () {
         try {
-            window.localStorage.setItem('w2p-cards-view', JSON.stringify({ group: this.group, subcards: this.filters.subcards }));
+            window.localStorage.setItem(this.viewKey, JSON.stringify({ group: this.group, subcards: this.filters.subcards }));
         } catch (e) { /* ignore */ }
     };
 
@@ -143,6 +150,7 @@
     Board.prototype.change = function (op, payload) {
         var self = this;
         payload = payload || {};
+        payload.board = this.options.projectId;
         if (this.openCardId) {
             payload.open_card = this.openCardId;
         }
@@ -215,7 +223,7 @@
             option('status', 'Status', this.group === 'status'),
             option('priority', 'Priority', this.group === 'priority'),
             option('owner', 'Owner', this.group === 'owner'),
-            option('task', 'Linked task', this.group === 'task'),
+            this.isAll ? option('project', 'Project', this.group === 'project') : option('task', 'Linked task', this.group === 'task'),
             option('tag', 'Tag', this.group === 'tag')
         ]);
         bar.appendChild(el('label', {}, ['Group by ', groupSelect]));
@@ -262,7 +270,10 @@
         if (this.compact) {
             bar.appendChild(el('a', { href: this.options.boardUrl + '&project_id=' + this.data.project.id, text: 'Open full board' }));
         } else if (this.data.can.configure) {
-            bar.appendChild(el('button', { type: 'button', className: 'w2p-cards-button', text: 'Board settings', onClick: function () { self.settingsDialog(); } }));
+            bar.appendChild(el('button', {
+                type: 'button', className: 'w2p-cards-button', text: this.isAll ? 'Default settings' : 'Board settings',
+                onClick: function () { self.settingsDialog(); }
+            }));
         }
         if (this.data.can.add) {
             bar.appendChild(el('button', {
@@ -299,6 +310,11 @@
                     if (linked[t.id]) { taskCols.push({ field: 'task', value: t.id, label: '#' + t.id + ' ' + t.name }); }
                 });
                 return taskCols;
+            case 'project':
+                var inProject = present('project');
+                return data.projects.filter(function (pr) { return inProject[pr.id]; }).map(function (pr) {
+                    return { field: 'project', value: pr.id, label: pr.name, locked: true };
+                });
             case 'tag':
                 var used = {};
                 data.cards.forEach(function (c) { c.tags.forEach(function (id) { used[id] = true; }); });
@@ -313,7 +329,8 @@
                     return !col || col.shown;
                 }).map(function (s) {
                     var col = data.settings.columns[s.id] || {};
-                    return { field: 'status', value: s.id, label: s.name, wip: col.wip || 0, category: s.category };
+                    // WIP limits belong to one team's board; the all-projects view shows none.
+                    return { field: 'status', value: s.id, label: s.name, wip: self.isAll ? 0 : (col.wip || 0), category: s.category };
                 });
         }
     };
@@ -361,7 +378,7 @@
         shown.forEach(function (card) { list.appendChild(self.renderCard(card)); });
 
         var section = el('section', { className: 'w2p-cards-column', 'aria-label': column.label }, [header, list]);
-        if (this.data.can.add) {
+        if (this.data.can.add && !this.isAll) {
             section.appendChild(el('button', {
                 type: 'button', className: 'w2p-cards-add', text: '+ Add card',
                 onClick: function () { self.inlineAdd(section, column); }
@@ -370,7 +387,8 @@
 
         if (this.data.can.edit && window.Sortable) {
             this.sortables.push(window.Sortable.create(list, {
-                group: 'w2p-cards',
+                // A project column keeps its cards: reorder inside it, never move out.
+                group: column.locked ? { name: 'w2p-cards-locked-' + column.value, pull: false, put: false } : 'w2p-cards',
                 animation: 150,
                 ghostClass: 'is-placeholder',
                 dragClass: 'is-dragging',
@@ -397,6 +415,9 @@
             })));
         }
         parts.push(el('div', { className: 'w2p-cards-name', text: card.name }));
+        if (this.isAll && fields.project && this.group !== 'project') {
+            parts.push(el('div', { className: 'w2p-cards-project', text: card.project_name }));
+        }
         if (fields.task && card.task) {
             parts.push(el('div', { className: 'w2p-cards-chip', text: 'Task #' + card.task + ' ' + card.task_name }));
         }
@@ -446,8 +467,16 @@
         }
         var field = to.getAttribute('data-field');
         var value = parseInt(to.getAttribute('data-value'), 10);
+        // Order is kept per project, so the neighbours that count are the
+        // nearest cards of the same project (all of them, on a project board).
+        var sameProject = function (node) {
+            var other = node && self.cards[parseInt(node.getAttribute('data-id'), 10)];
+            return !other || other.project === card.project;
+        };
         var prev = evt.item.previousElementSibling;
+        while (prev && !sameProject(prev)) { prev = prev.previousElementSibling; }
         var next = evt.item.nextElementSibling;
+        while (next && !sameProject(next)) { next = next.nextElementSibling; }
         var payload = {
             card_id: cardId,
             version: card.version,
@@ -561,26 +590,41 @@
         var status = el('select', { 'aria-label': 'Status' }, this.data.statuses.map(function (s) {
             return option(s.id, s.name, preset.status ? s.id === preset.status : false);
         }));
-        var task = el('select', { 'aria-label': 'Linked task' }, [option(0, 'No task', !preset.task)].concat(
-            this.data.tasks.map(function (t) { return option(t.id, '#' + t.id + ' ' + t.name, t.id === preset.task); })));
         var error = el('p', { className: 'w2p-cards-error' });
-        this.dialog('New card', [
+        var body = [
             el('label', { className: 'w2p-cards-field' }, ['Name', name]),
-            el('label', { className: 'w2p-cards-field' }, ['Status', status]),
-            el('label', { className: 'w2p-cards-field' }, ['Linked task (optional)', task]),
-            error
-        ], [
+            el('label', { className: 'w2p-cards-field' }, ['Status', status])
+        ];
+        // On the all-projects board, pick the project (the task can be linked
+        // from the card afterwards); on a project board, optionally a task.
+        var project = null;
+        var task = null;
+        if (this.isAll) {
+            project = el('select', { 'aria-label': 'Project' }, [option('', 'Pick a project', true)].concat(
+                this.data.projects.map(function (pr) { return option(pr.id, pr.name); })));
+            body.unshift(el('label', { className: 'w2p-cards-field' }, ['Project', project]));
+        } else {
+            task = el('select', { 'aria-label': 'Linked task' }, [option(0, 'No task', !preset.task)].concat(
+                this.data.tasks.map(function (t) { return option(t.id, '#' + t.id + ' ' + t.name, t.id === preset.task); })));
+            body.push(el('label', { className: 'w2p-cards-field' }, ['Linked task (optional)', task]));
+        }
+        body.push(error);
+        this.dialog('New card', body, [
             {
                 label: 'Create', primary: true, value: function () {
+                    if (project && !project.value) { error.textContent = 'Pick a project.'; project.focus(); return false; }
                     if (!name.value.trim()) { error.textContent = 'Give the card a name.'; name.focus(); return false; }
-                    return { name: name.value, status: parseInt(status.value, 10), task: parseInt(task.value, 10) };
+                    var fields = { name: name.value, status: parseInt(status.value, 10) };
+                    if (task) { fields.task = parseInt(task.value, 10); }
+                    return { projectId: project ? parseInt(project.value, 10) : self.data.project.id, fields: fields };
                 }
             },
             { label: 'Cancel', value: null }
-        ]).then(function (fields) {
-            if (!fields) { return; }
-            self.change('create', { project_id: self.data.project.id, fields: fields }).then(function (data) {
-                if (data.created) { self.openCard(data.created); }
+        ]).then(function (result) {
+            if (!result) { return; }
+            // The new card shows on the board; it opens with another click.
+            self.change('create', { project_id: result.projectId, fields: result.fields }).then(function (data) {
+                if (data.created) { self.toast('Card created.'); }
             }).catch(function () {});
         });
     };
@@ -626,13 +670,16 @@
             var wip = el('input', { type: 'number', min: '0', max: '999', value: col.wip ? String(col.wip) : '', placeholder: 'none', 'aria-label': 'WIP limit for ' + s.name });
             return { id: s.id, shown: shown, wip: wip, row: el('tr', {}, [el('td', { text: s.name }), el('td', {}, [wip]), el('td', {}, [shown])]) };
         });
-        var labels = { key: 'Card key', owner: 'Owner', priority: 'Priority', due: 'Due date', tags: 'Tags', subcards: 'Subcard progress', dependencies: 'Dependency badge', task: 'Linked task' };
+        var labels = { key: 'Card key', owner: 'Owner', priority: 'Priority', due: 'Due date', tags: 'Tags', subcards: 'Subcard progress', dependencies: 'Dependency badge', task: 'Linked task', project: 'Project name (all-projects view)' };
         var fieldBoxes = Object.keys(labels).map(function (key) {
             var box = el('input', { type: 'checkbox', checked: settings.fields[key] });
             return { key: key, box: box, label: el('label', { className: 'w2p-cards-check' }, [box, ' ' + labels[key]]) };
         });
+        var hint = this.isAll
+            ? 'The default board settings: the all-projects view uses them, and so does every project that hasn\'t saved its own. WIP limits apply on project boards only.'
+            : 'Statuses are one global list. WIP limits are soft: a column turns amber at its limit and red above it; moves are never blocked.';
         var body = [
-            el('p', { className: 'w2p-cards-hint', text: 'Statuses are one global list. WIP limits are soft: a column turns amber at its limit and red above it; moves are never blocked.' }),
+            el('p', { className: 'w2p-cards-hint', text: hint }),
             el('table', { className: 'w2p-cards-settings' }, [
                 el('thead', {}, [el('tr', {}, [el('th', { text: 'Column' }), el('th', { text: 'WIP limit' }), el('th', { text: 'Shown' })])]),
                 el('tbody', {}, rows.map(function (r) { return r.row; }))
@@ -643,7 +690,7 @@
         if (this.data.can.statuses) {
             body.push(el('p', {}, [el('a', { href: this.options.statusesUrl, text: 'Edit the global status list' })]));
         }
-        this.dialog('Board settings', body, [
+        this.dialog(this.isAll ? 'Default board settings' : 'Board settings', body, [
             {
                 label: 'Save', primary: true, value: function () {
                     var out = { columns: {}, fields: {} };
@@ -655,7 +702,7 @@
             { label: 'Cancel', value: null }
         ]).then(function (out) {
             if (out) {
-                self.change('settings', { project_id: self.data.project.id, settings: out }).then(function () {
+                self.change('settings', { project_id: self.isAll ? 0 : self.data.project.id, settings: out }).then(function () {
                     self.toast('Board settings saved.');
                 }).catch(function () {});
             }
@@ -729,7 +776,7 @@
             if (name.value.trim() && name.value !== card.name) { setField('name', name.value); }
         });
         drawer.appendChild(el('div', { className: 'w2p-cards-drawer-head' }, [
-            el('div', { className: 'w2p-cards-drawer-key', text: this.data.project.name + ' › ' + card.key }),
+            el('div', { className: 'w2p-cards-drawer-key', text: card.project_name + ' › ' + card.key }),
             el('button', { type: 'button', className: 'w2p-cards-close', 'aria-label': 'Close', text: '×', onClick: function () { self.closeDrawer(); } })
         ]));
         drawer.appendChild(name);
@@ -747,11 +794,11 @@
             [option(0, 'Unassigned', !card.owner)].concat(this.data.users.map(function (u) { return option(u.id, u.name, u.id === card.owner); }))));
         addField('Due date', el('input', { type: 'date', value: card.due, disabled: !edit, onChange: function () { setField('due', this.value); } }));
         var taskSelect = el('select', { disabled: !edit, onChange: function () { setField('task', parseInt(this.value, 10)); } },
-            [option(0, 'No task', !card.task)].concat(this.data.tasks.map(function (t) { return option(t.id, '#' + t.id + ' ' + t.name, t.id === card.task); })));
+            [option(0, 'No task', !card.task)].concat((card.tasks || []).map(function (t) { return option(t.id, '#' + t.id + ' ' + t.name, t.id === card.task); })));
         addField('Linked task', taskSelect);
         grid.appendChild(el('div', { className: 'w2p-cards-field' }, [
             'Project',
-            el('span', { className: 'w2p-cards-static', text: this.data.project.name + ' (set when created)' })
+            el('span', { className: 'w2p-cards-static', text: card.project_name + ' (moves only with its linked task)' })
         ]));
         drawer.appendChild(grid);
         if (card.task) {
@@ -807,7 +854,7 @@
             subInput.addEventListener('keydown', function (e) {
                 if (e.key === 'Enter' && subInput.value.trim()) {
                     e.preventDefault();
-                    self.change('create', { project_id: self.data.project.id, parent: card.id, fields: { name: subInput.value, status: card.status, task: card.task } }).catch(function () {});
+                    self.change('create', { project_id: card.project, parent: card.id, fields: { name: subInput.value, status: card.status, task: card.task } }).catch(function () {});
                 }
             });
             related.push(subInput);
@@ -894,7 +941,7 @@
         var checks = Promise.resolve(true);
         var payload = { card_id: card.id, version: card.version, group: 'status', value: statusId, before: 0, after: 0 };
         // Keep its place: after the last card of the new column.
-        var inColumn = this.data.cards.filter(function (c) { return c.status === statusId && c.id !== card.id; });
+        var inColumn = this.data.cards.filter(function (c) { return c.status === statusId && c.id !== card.id && c.project === card.project; });
         if (inColumn.length) { payload.before = inColumn[inColumn.length - 1].id; }
         if (status && status.category === CLOSED) {
             if (boardCard.waits_on.length) {
@@ -936,7 +983,8 @@
 
     /** A select of the other cards in this project. */
     Board.prototype.cardPicker = function (label, card, onPick) {
-        var others = this.data.cards.filter(function (c) { return c.id !== card.id; });
+        // Relationships stay inside one project.
+        var others = this.data.cards.filter(function (c) { return c.id !== card.id && c.project === card.project; });
         var select = el('select', { 'aria-label': label }, [option('', label, true)].concat(
             others.map(function (c) { return option(c.id, c.key + ' ' + c.name); })));
         select.addEventListener('change', function () {
