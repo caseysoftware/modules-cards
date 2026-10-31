@@ -65,15 +65,16 @@ class CCardBoard
     }
 
     /**
-     * The all-projects board: every card the user may see, grouped by
-     * project within each column, with the default board settings. Cards
-     * can change status (and priority, owner, tags) here, never project.
+     * The all-projects board: every card the user may see in an active
+     * project, grouped by project within each column, with the default
+     * board settings. Cards can change status (and priority, owner, tags)
+     * here, never project.
      *
      * @return array<string, mixed>
      */
     public function boardAll()
     {
-        $projects = $this->access->visibleProjects();
+        $projects = $this->access->visibleProjects(true);
 
         return array(
             'all' => true,
@@ -81,7 +82,7 @@ class CCardBoard
             'projects' => $projects,
             'statuses' => CCardStatuses::all(),
             'settings' => CCardSettings::defaults(),
-            'cards' => $this->cardRows('1 = 1', 'p.project_name, p.project_id, c.card_rank, c.card_id'),
+            'cards' => $this->cardRows('p.project_active = 1', 'p.project_name, p.project_id, c.card_rank, c.card_id'),
             'tags' => $this->pairs(CCardTags::all()),
             'users' => $this->users(),
             'tasks' => array(),

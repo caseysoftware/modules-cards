@@ -109,19 +109,24 @@ class CCardAccess
     /**
      * The projects this user may see, for pickers and the all-projects view.
      *
-     * @return array<int, array{id:int, name:string, short_name:string}>
+     * @param bool $activeOnly only active projects (project_active = 1)
+     *
+     * @return array<int, array{id:int, name:string, short_name:string, active:bool}>
      */
-    public function visibleProjects()
+    public function visibleProjects($activeOnly = false)
     {
         if (!$this->can('view')) {
             return array();
         }
         $q = new w2p_Database_Query();
         $q->addTable('projects', 'p');
-        $q->addQuery('p.project_id, p.project_name, p.project_short_name');
+        $q->addQuery('p.project_id, p.project_name, p.project_short_name, p.project_active');
         $project = new CProject();
         foreach ($project->getAllowedSQL($this->userId, 'p.project_id') as $condition) {
             $q->addWhere($condition);
+        }
+        if ($activeOnly) {
+            $q->addWhere('p.project_active = 1');
         }
         $q->addOrder('p.project_name');
 
@@ -131,6 +136,7 @@ class CCardAccess
                 'id' => (int) $row['project_id'],
                 'name' => html_entity_decode((string) $row['project_name'], ENT_QUOTES, 'UTF-8'),
                 'short_name' => html_entity_decode((string) $row['project_short_name'], ENT_QUOTES, 'UTF-8'),
+                'active' => (bool) $row['project_active'],
             );
         }
 

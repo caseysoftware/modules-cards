@@ -92,14 +92,17 @@ user can't see.
 
 ## The all projects board
 
-**Cards** opens on **All projects**: every card you may see, grouped by
-project within each column. Each card shows its title with the due date
+**Cards** opens on **All projects**: every card you may see in an **active**
+project, grouped by project within each column. Each card shows its title with the due date
 on the right, and its project as a pill in the project's color with the
 subcard count on the right; card numbers aren't shown there. You can drag
 cards between statuses (and priorities, owners and tags), but never between
 projects: grouped by project, a card can only be reordered within its own
 project's column. **+ New card** asks which project the card is for. Pick a
-project in the title bar for a single project's board.
+project in the title bar for a single project's board; the picker lists
+**All projects** and the active projects. An inactive project's board is
+still reachable from its project's **Cards** tab or a link to one of its
+cards, and then shows in the picker marked "(inactive)".
 
 ### Moving a card to another project
 

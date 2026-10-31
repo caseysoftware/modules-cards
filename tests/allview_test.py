@@ -101,6 +101,24 @@ def main():
     check(code == 200 and body['data']['board']['all'] is True and body['data']['created'] in ids(body['data']['board']), 'create from the all-projects board')
     check('card' not in body['data'], 'creating doesn\'t open the new card')
 
+    print('== active projects only')
+    ui = W2P().login()
+    ui.submit('m=projects&a=addedit&project_id=%d' % other, {'project_active': None})
+    check(sql('select project_active from projects where project_id = %d' % other)[0][0] == '0', 'second project set inactive through its form')
+    b = admin.call('board', {'project_id': ALL})[1]['data']['board']
+    check(not ({shed, shed2} & ids(b)) and home in ids(b), 'all-projects board leaves out inactive projects\' cards')
+    check(other not in {p['id'] for p in b['projects']}, 'and doesn\'t offer them for new cards or grouping')
+    picker = admin.s.get(INDEX + '?m=cards&project_id=%d' % ALL).text
+    options = re.findall(r'<option value="(-?\d+)"[^>]*>([^<]*)</option>', picker.split('name="project_id"')[1].split('</select>')[0])
+    check([o[0] for o in options][0] == str(ALL) and str(other) not in [o[0] for o in options] and str(PROJECT) in [o[0] for o in options],
+          'project picker: All projects and active projects only (%s)' % [o[1] for o in options])
+    page = admin.s.get(INDEX + '?m=cards&project_id=%d' % other).text
+    check('Backyard shed (inactive)' in page and '"projectId":%d' % other in page.replace('&quot;', '"'), 'a direct link still opens an inactive project\'s board')
+    page = admin.s.get(INDEX + '?m=cards').text
+    check('"projectId":-1' in page.replace('&quot;', '"'), 'and the next visit without a link is back on All projects')
+    ui.submit('m=projects&a=addedit&project_id=%d' % other, {'project_active': '1'})
+    check(shed in ids(admin.call('board', {'project_id': ALL})[1]['data']['board']), 'reactivated: its cards are back')
+
     print('== default settings')
     code, body = worker.call('settings', {'project_id': 0, 'settings': {'fields': {'owner': False}}})
     check(code == 403, 'only administrators change the defaults')

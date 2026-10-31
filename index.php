@@ -15,28 +15,42 @@ if (!$access->can('view')) {
     $AppUI->redirect(ACCESS_DENIED);
 }
 
-// Projects this user may see, for the picker.
+// The picker offers "All projects" and the active projects. Inactive
+// projects the user may see are still reachable by a direct link (their
+// project's Cards tab, a card link); they then show in the picker too.
 $projects = array();
+$visible = array();
 foreach ($access->visibleProjects() as $project) {
-    $projects[$project['id']] = $project['name'];
+    $visible[$project['id']] = $project;
+    if ($project['active']) {
+        $projects[$project['id']] = $project['name'];
+    }
 }
 
 // The title block's project filter posts; links pass it in the URL.
-if (isset($_REQUEST['project_id'])) {
+$requested = isset($_REQUEST['project_id']);
+if ($requested) {
     $AppUI->setState('CardsProject', (int) w2PgetParam($_REQUEST, 'project_id', CCardBoard::ALL));
 }
 $projectId = (int) $AppUI->getState('CardsProject', CCardBoard::ALL);
-if (!isset($projects[$projectId])) {
-    $projectId = CCardBoard::ALL;
-}
 $openCard = (int) w2PgetParam($_GET, 'card', 0);
-if ($openCard && CCardBoard::ALL !== $projectId) {
+if ($openCard) {
     // A link to a card (Smart Search, the calendar, the Task tab): show its
-    // project's board, unless the all-projects board is showing anyway.
+    // project's board, unless the all-projects board shows it already.
     $card = CCardStore::load($openCard);
-    if ($card && isset($projects[(int) $card['card_project']])) {
-        $projectId = (int) $card['card_project'];
+    $cardProject = $card ? (int) $card['card_project'] : 0;
+    if ($cardProject && isset($visible[$cardProject])
+        && (CCardBoard::ALL !== $projectId || !$visible[$cardProject]['active'])) {
+        $projectId = $cardProject;
+        $requested = true;
         $AppUI->setState('CardsProject', $projectId);
+    }
+}
+if (!isset($projects[$projectId])) {
+    if ($requested && isset($visible[$projectId])) {
+        $projects[$projectId] = $visible[$projectId]['name'] . ' (' . $AppUI->_('inactive') . ')';
+    } else {
+        $projectId = CCardBoard::ALL;
     }
 }
 
