@@ -93,7 +93,9 @@ user can't see.
 ## The all projects board
 
 **Cards** opens on **All projects**: every card you may see, grouped by
-project within each column, each showing its project's name. You can drag
+project within each column. Each card shows its title with the due date
+on the right, and its project as a pill in the project's color with the
+subcard count on the right; card numbers aren't shown there. You can drag
 cards between statuses (and priorities, owners and tags), but never between
 projects: grouped by project, a card can only be reordered within its own
 project's column. **+ New card** asks which project the card is for. Pick a

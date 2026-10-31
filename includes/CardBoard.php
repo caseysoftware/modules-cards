@@ -118,7 +118,7 @@ class CCardBoard
     {
         $q = new w2p_Database_Query();
         $q->addTable('cards', 'c');
-        $q->addQuery('c.*, p.project_name, p.project_short_name, t.task_name, t.task_project');
+        $q->addQuery('c.*, p.project_name, p.project_short_name, p.project_color_identifier, t.task_name, t.task_project');
         $this->access->restrict($q);
         $q->addWhere($where);
         $q->addOrder($order);
@@ -162,6 +162,7 @@ class CCardBoard
                 'name' => $row['card_name'],
                 'project' => (int) $row['card_project'],
                 'project_name' => html_entity_decode((string) $row['project_name'], ENT_QUOTES, 'UTF-8'),
+                'project_color' => preg_match('/^[0-9a-fA-F]{6}$/', (string) $row['project_color_identifier']) ? $row['project_color_identifier'] : '',
                 'status' => (int) $row['card_status'],
                 'priority' => (int) $row['card_priority'],
                 'owner' => (int) $row['card_owner'],

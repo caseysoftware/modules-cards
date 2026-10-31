@@ -61,6 +61,27 @@
         return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
     }
 
+    var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    /** "2026-11-12" -> "Nov 12" ("Nov 12, 2027" outside the current year). */
+    function shortDate(ymd) {
+        var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd || '');
+        if (!m) { return ymd; }
+        var text = MONTHS[parseInt(m[2], 10) - 1] + ' ' + parseInt(m[3], 10);
+        return parseInt(m[1], 10) === new Date().getFullYear() ? text : text + ', ' + m[1];
+    }
+
+    /** Inline style for a project pill: its color, with readable text. */
+    function projectColors(hex) {
+        hex = /^[0-9a-fA-F]{6}$/.test(hex || '') ? hex : 'D0D7DE';
+        var r = parseInt(hex.substr(0, 2), 16), g = parseInt(hex.substr(2, 2), 16), b = parseInt(hex.substr(4, 2), 16);
+        var lum = function (c) { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+        var l = 0.2126 * lum(r) + 0.7152 * lum(g) + 0.0722 * lum(b);
+        // Dark ink (#1F2328, luminance 0.0165) or white, whichever contrasts more.
+        var ink = (l + 0.05) / (0.0165 + 0.05) >= 1.05 / (l + 0.05) ? '#1F2328' : '#FFFFFF';
+        return 'background-color: #' + hex + '; color: ' + ink + ';';
+    }
+
     function byId(list) {
         var map = {};
         (list || []).forEach(function (item) { map[item.id] = item; });
@@ -403,20 +424,37 @@
     Board.prototype.renderCard = function (card) {
         var self = this;
         var fields = this.data.settings.fields;
+        // All-projects view: the project shows as a pill, so keys drop the short name.
+        var pill = this.isAll && fields.project;
         var parts = [];
 
         if (card.parent && this.cards[card.parent]) {
             var parent = this.cards[card.parent];
-            parts.push(el('div', { className: 'w2p-cards-parent', text: '↳ subcard of ' + parent.key + ' ' + parent.name }));
+            parts.push(el('div', { className: 'w2p-cards-parent', text: '↳ subcard of ' + (this.isAll ? '' : parent.key + ' ') + parent.name }));
         }
         if (fields.tags && card.tags.length) {
             parts.push(el('div', { className: 'w2p-cards-tags' }, card.tags.map(function (id) {
                 return el('span', { className: 'w2p-cards-tag', text: self.tags[id] ? self.tags[id].name : '#' + id });
             })));
         }
-        parts.push(el('div', { className: 'w2p-cards-name', text: card.name }));
-        if (this.isAll && fields.project && this.group !== 'project') {
-            parts.push(el('div', { className: 'w2p-cards-project', text: card.project_name }));
+        var hasSubcards = fields.subcards && card.subcards;
+        var subcardText = hasSubcards ? '☐ ' + card.subcards_done + '/' + card.subcards : '';
+        if (this.isAll) {
+            // All projects: the due date sits right of the title, and the
+            // subcard count right of the project pill. No card number.
+            parts.push(el('div', { className: 'w2p-cards-titlerow' }, [
+                el('div', { className: 'w2p-cards-name', text: card.name }),
+                fields.due && card.due ? el('span', { className: 'w2p-cards-due', title: 'Due ' + card.due, text: shortDate(card.due) }) : null
+            ]));
+            var showPill = pill && this.group !== 'project';
+            if (showPill || hasSubcards) {
+                parts.push(el('div', { className: 'w2p-cards-projectrow' }, [
+                    showPill ? el('span', { className: 'w2p-cards-project', style: projectColors(card.project_color), title: card.project_name, text: card.project_name }) : el('span'),
+                    hasSubcards ? el('span', { className: 'w2p-cards-subcount', title: card.subcards_done + ' of ' + card.subcards + ' subcards done', text: subcardText }) : null
+                ]));
+            }
+        } else {
+            parts.push(el('div', { className: 'w2p-cards-name', text: card.name }));
         }
         if (fields.task && card.task) {
             parts.push(el('div', { className: 'w2p-cards-chip', text: 'Task #' + card.task + ' ' + card.task_name }));
@@ -424,22 +462,24 @@
         if (fields.dependencies && card.waits_on.length) {
             parts.push(el('div', {
                 className: 'w2p-cards-blocked',
-                text: 'Waiting on ' + card.waits_on.map(function (w) { return w.key; }).join(', ')
+                text: 'Waiting on ' + card.waits_on.map(function (w) { return pill ? '#' + w.id : w.key; }).join(', ')
             }));
         }
 
         var meta = el('div', { className: 'w2p-cards-meta' });
-        if (fields.key) { meta.appendChild(el('span', { text: card.key })); }
+        if (fields.key && !this.isAll) { meta.appendChild(el('span', { text: card.key })); }
         if (fields.priority && card.priority === 1) { meta.appendChild(el('span', { className: 'w2p-cards-high', text: '▲ High' })); }
         if (fields.priority && card.priority === -1) { meta.appendChild(el('span', { text: '▼ Low' })); }
-        if (fields.due && card.due) { meta.appendChild(el('span', { text: 'Due ' + card.due })); }
-        if (fields.subcards && card.subcards) { meta.appendChild(el('span', { text: '☐ ' + card.subcards_done + '/' + card.subcards })); }
+        if (fields.due && card.due && !this.isAll) { meta.appendChild(el('span', { text: 'Due ' + card.due })); }
+        if (hasSubcards && !this.isAll) { meta.appendChild(el('span', { text: subcardText })); }
         if (fields.owner && card.owner) {
             var owner = this.users[card.owner];
             var name = owner ? owner.name : '#' + card.owner;
             meta.appendChild(el('span', { className: 'w2p-cards-avatar', title: name, text: initials(name) }));
         }
-        parts.push(meta);
+        if (meta.childNodes.length) {
+            parts.push(meta);
+        }
 
         return el('article', {
             className: 'w2p-cards-card' + (card.id === this.openCardId ? ' is-open' : ''),
@@ -783,22 +823,33 @@
 
         // Fields
         var grid = el('div', { className: 'w2p-cards-grid' });
-        var addField = function (label, control) {
-            grid.appendChild(el('label', { className: 'w2p-cards-field' }, [label, control]));
+        var field = function (label, control) {
+            return el('label', { className: 'w2p-cards-field' }, [el('span', { className: 'w2p-cards-label', text: label }), control]);
         };
-        addField('Status', el('select', { disabled: !edit, onChange: function () { self.moveFromDrawer(card, parseInt(this.value, 10)); } },
-            this.data.statuses.map(function (s) { return option(s.id, s.name, s.id === card.status); })));
-        addField('Priority', el('select', { disabled: !edit, onChange: function () { setField('priority', parseInt(this.value, 10)); } },
-            PRIORITIES.map(function (p) { return option(p.value, p.label, p.value === card.priority); })));
-        addField('Owner', el('select', { disabled: !edit, onChange: function () { setField('owner', parseInt(this.value, 10)); } },
-            [option(0, 'Unassigned', !card.owner)].concat(this.data.users.map(function (u) { return option(u.id, u.name, u.id === card.owner); }))));
-        addField('Due date', el('input', { type: 'date', value: card.due, disabled: !edit, onChange: function () { setField('due', this.value); } }));
+        var addField = function (label, control) {
+            grid.appendChild(field(label, control));
+        };
+        // Two fields on one line; they stack when the drawer is narrow.
+        var addPair = function (first, second) {
+            grid.appendChild(el('div', { className: 'w2p-cards-pair' }, [first, second]));
+        };
+        addPair(
+            field('Status', el('select', { disabled: !edit, onChange: function () { self.moveFromDrawer(card, parseInt(this.value, 10)); } },
+                this.data.statuses.map(function (s) { return option(s.id, s.name, s.id === card.status); }))),
+            field('Priority', el('select', { disabled: !edit, onChange: function () { setField('priority', parseInt(this.value, 10)); } },
+                PRIORITIES.map(function (p) { return option(p.value, p.label, p.value === card.priority); })))
+        );
+        addPair(
+            field('Owner', el('select', { disabled: !edit, onChange: function () { setField('owner', parseInt(this.value, 10)); } },
+                [option(0, 'Unassigned', !card.owner)].concat(this.data.users.map(function (u) { return option(u.id, u.name, u.id === card.owner); })))),
+            field('Due date', el('input', { type: 'date', value: card.due, disabled: !edit, onChange: function () { setField('due', this.value); } }))
+        );
         var taskSelect = el('select', { disabled: !edit, onChange: function () { setField('task', parseInt(this.value, 10)); } },
             [option(0, 'No task', !card.task)].concat((card.tasks || []).map(function (t) { return option(t.id, '#' + t.id + ' ' + t.name, t.id === card.task); })));
         addField('Linked task', taskSelect);
         grid.appendChild(el('div', { className: 'w2p-cards-field' }, [
-            'Project',
-            el('span', { className: 'w2p-cards-static', text: card.project_name + ' (moves only with its linked task)' })
+            el('span', { className: 'w2p-cards-label', text: 'Project' }),
+            el('span', { className: 'w2p-cards-static', text: card.project_name, title: 'A card moves only with its linked task' })
         ]));
         drawer.appendChild(grid);
         if (card.task) {
@@ -976,7 +1027,7 @@
     Board.prototype.cardLink = function (card) {
         var self = this;
         return el('button', {
-            type: 'button', className: 'w2p-cards-link', text: card.key + ' ' + card.name,
+            type: 'button', className: 'w2p-cards-link', text: '#' + card.id + ' ' + card.name, title: card.key,
             onClick: function () { self.openCard(card.id); }
         });
     };
@@ -986,7 +1037,7 @@
         // Relationships stay inside one project.
         var others = this.data.cards.filter(function (c) { return c.id !== card.id && c.project === card.project; });
         var select = el('select', { 'aria-label': label }, [option('', label, true)].concat(
-            others.map(function (c) { return option(c.id, c.key + ' ' + c.name); })));
+            others.map(function (c) { return option(c.id, '#' + c.id + ' ' + c.name); })));
         select.addEventListener('change', function () {
             if (select.value) { onPick(parseInt(select.value, 10)); }
         });
