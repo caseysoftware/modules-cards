@@ -12,7 +12,8 @@ attached to a project and optionally to one of its tasks.
 - **Card drawer**: name, status, priority, owner, due date, linked task,
   tags, description, subcards, dependencies, and the card's activity log
   with comments. Type several tags at once, separated by commas
-  ("electrical, rough-in").
+  ("electrical, rough-in"). Close the drawer with ×, Escape, or a click
+  outside it.
 - **Subcards and dependencies** between cards of the same project, with loop
   detection.
 - **Soft WIP limits** per board: a column header turns amber at its limit

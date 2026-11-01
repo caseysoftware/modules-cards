@@ -132,6 +132,8 @@
         this.toastBox = el('div', { className: 'w2p-cards-toasts', role: 'status', 'aria-live': 'polite' });
         document.body.appendChild(this.toastBox);
         document.addEventListener('keydown', this.onKey.bind(this));
+        document.addEventListener('mousedown', this.onPointer.bind(this), true);
+        document.addEventListener('click', this.onOutsideClick.bind(this), true);
 
         var self = this;
         this.api('board', { project_id: options.projectId }).then(function (data) {
@@ -216,7 +218,9 @@
             this.cards = byId(this.data.cards);
             this.render();
         }
-        if (data.card) {
+        // A reply for a card that's no longer open (the drawer was closed, or
+        // another card opened, while it was on its way) doesn't reopen it.
+        if (data.card && data.card.id === this.openCardId) {
             this.cardData = data.card;
             this.renderDrawer();
         } else if (this.openCardId && data.board && !this.cards[this.openCardId]) {
@@ -798,6 +802,28 @@
         } else if (this.drawer && !e.defaultPrevented) {
             this.closeDrawer();
         }
+    };
+
+    /**
+     * Clicking outside the drawer closes it. Both the press and the click
+     * have to land outside, so selecting text in the drawer and letting go
+     * beyond it doesn't close it. Clicks on another card open that card
+     * instead; dialogs and toasts don't count as outside.
+     */
+    Board.prototype.onPointer = function (e) {
+        this.pressedOutside = this.isOutside(e.target);
+    };
+
+    Board.prototype.onOutsideClick = function (e) {
+        if (!this.drawer || this.activeDialog || !this.pressedOutside || !this.isOutside(e.target)) { return; }
+        if (e.target.closest && e.target.closest('.w2p-cards-card')) { return; }
+        this.closeDrawer();
+    };
+
+    Board.prototype.isOutside = function (target) {
+        if (!this.drawer || !target || !target.closest) { return false; }
+        return !this.drawer.contains(target)
+            && !target.closest('.w2p-cards-overlay, .w2p-cards-toasts');
     };
 
     Board.prototype.renderDrawer = function () {
