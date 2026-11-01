@@ -4,8 +4,6 @@ Cards adds a Trello-style Kanban board to web2project. Cards belong to projects,
 
 web2project has always been good at structured plans but weak at fast, visual day-to-day tracking. Cards closes that gap while keeping the project plan the source of truth. Cards stay tied to their tasks and their permissions, but working the board never changes the schedule.
 
-=== 
-
 ## Features
 
 - **All projects board** (the default) with every card you may see, and a
