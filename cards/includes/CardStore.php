@@ -757,22 +757,93 @@ class CCardStore
 
     /**
      * @param int    $cardId
-     * @param string $name
+     * @param string $name one tag, or several separated by commas
      *
-     * @return int|false the tag id
+     * @return int the (first) tag id, 0 on failure
      */
     public function addTag($cardId, $name)
     {
-        $tagId = CCardTags::idFor($name);
-        if (!$tagId) {
-            return $this->fail('tag', 'Tags need a name of at most ' . CCardTags::MAX_LENGTH . ' characters.');
+        $ids = $this->addTags($cardId, $name);
+
+        return $ids ? $ids[0] : 0;
+    }
+
+    /**
+     * Adds every tag in what someone typed: "electrical, rough-in" is two
+     * tags. Nothing is added if a name is too long or the card would end up
+     * with more than CCardTags::MAX_PER_CARD tags.
+     *
+     * @param int    $cardId
+     * @param string $input
+     *
+     * @return int[] the tag ids, empty on failure
+     */
+    public function addTags($cardId, $input)
+    {
+        $names = CCardTags::split($input);
+        if (!$names) {
+            $this->fail('tag', 'Type a tag name. Separate several tags with commas.');
+
+            return array();
         }
-        if (CCardTags::attach($cardId, $tagId)) {
-            $names = CCardTags::names(array($tagId));
-            CCardActivity::log($cardId, $this->userId, CCardActivity::TAG_ADDED, 'tags', '', $names[$tagId]);
+        foreach ($names as $name) {
+            $length = function_exists('mb_strlen') ? mb_strlen($name, 'UTF-8') : strlen($name);
+            if ($length > CCardTags::MAX_LENGTH) {
+                $this->fail('tag', 'Tags need a name of at most ' . CCardTags::MAX_LENGTH . ' characters.');
+
+                return array();
+            }
         }
 
-        return $tagId;
+        $current = CCardTags::forCards(array($cardId));
+        $current = isset($current[$cardId]) ? $current[$cardId] : array();
+        $ids = array();
+        foreach ($names as $name) {
+            $ids[] = CCardTags::idFor($name);
+        }
+        $new = array_diff($ids, $current);
+        if (count($current) + count($new) > CCardTags::MAX_PER_CARD) {
+            $this->fail('tag', 'A card can have at most ' . CCardTags::MAX_PER_CARD . ' tags.');
+
+            return array();
+        }
+
+        $tagNames = CCardTags::names($new);
+        foreach ($new as $tagId) {
+            if (CCardTags::attach($cardId, $tagId)) {
+                CCardActivity::log($cardId, $this->userId, CCardActivity::TAG_ADDED, 'tags', '', $tagNames[$tagId]);
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * Adds an existing tag by id, whatever its name (tags from before 0.3.0
+     * may have a comma in it).
+     *
+     * @param int $cardId
+     * @param int $tagId
+     *
+     * @return bool false if there's no such tag or the card is at the limit
+     */
+    public function attachTag($cardId, $tagId)
+    {
+        $names = CCardTags::names(array($tagId));
+        if (!$names) {
+            return $this->fail('tag', 'That tag doesn\'t exist.');
+        }
+        $current = CCardTags::forCards(array($cardId));
+        $current = isset($current[$cardId]) ? $current[$cardId] : array();
+        if (in_array((int) $tagId, $current, true)) {
+            return true;
+        }
+        if (!CCardTags::attach($cardId, $tagId)) {
+            return $this->fail('tag', 'A card can have at most ' . CCardTags::MAX_PER_CARD . ' tags.');
+        }
+        CCardActivity::log($cardId, $this->userId, CCardActivity::TAG_ADDED, 'tags', '', reset($names));
+
+        return true;
     }
 
     /**

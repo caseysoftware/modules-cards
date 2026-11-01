@@ -705,7 +705,7 @@
             self.change('create', { project_id: self.data.project.id, fields: fields }).then(function (data) {
                 if (column.field === 'tag' && column.value && data.created) {
                     var tag = self.tags[column.value];
-                    if (tag) { self.change('tag_add', { card_id: data.created, name: tag.name }).catch(function () {}); }
+                    if (tag) { self.change('tag_add', { card_id: data.created, tag: tag.id }).catch(function () {}); }
                 }
             }).catch(function () {});
         };
@@ -872,7 +872,8 @@
         }
 
         // Tags
-        var tagInput = el('input', { type: 'text', list: 'w2p-cards-taglist', placeholder: 'Add tag', 'aria-label': 'Add tag', maxlength: '64', disabled: !edit });
+        // Several tags at once: "electrical, rough-in". The server splits them.
+        var tagInput = el('input', { type: 'text', list: 'w2p-cards-taglist', placeholder: 'Add tags, comma separated', 'aria-label': 'Add tags, separated by commas', maxlength: '1400', disabled: !edit });
         tagInput.addEventListener('keydown', function (e) {
             if (e.key === 'Enter' && tagInput.value.trim()) {
                 e.preventDefault();

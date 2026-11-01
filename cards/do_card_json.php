@@ -260,7 +260,12 @@ switch ($op) {
     case 'tag_add':
         $requireRight('edit');
         $card = $visibleCard($int('card_id'));
-        if (!$store->addTag($card['card_id'], isset($in['name']) ? $in['name'] : '')) {
+        // "name" may hold several tags separated by commas; "tag" adds an
+        // existing tag by id (its name may have a comma from before 0.3.0).
+        $added = $int('tag')
+            ? $store->attachTag($card['card_id'], $int('tag'))
+            : $store->addTags($card['card_id'], isset($in['name']) ? $in['name'] : '');
+        if (!$added) {
             $failed($store, (int) $card['card_project']);
         }
         $respond((int) $card['card_project']);

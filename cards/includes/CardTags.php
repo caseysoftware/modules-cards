@@ -29,6 +29,28 @@ class CCardTags
     }
 
     /**
+     * The tag names in what someone typed: commas separate tags. Names are
+     * trimmed, empty ones dropped, and repeats (by slug) kept once.
+     *
+     * @param string $input
+     *
+     * @return string[]
+     */
+    public static function split($input)
+    {
+        $names = array();
+        foreach (explode(',', (string) $input) as $name) {
+            $name = preg_replace('/\s+/u', ' ', trim($name));
+            $slug = self::slug($name);
+            if ('' !== $slug && !isset($names[$slug])) {
+                $names[$slug] = $name;
+            }
+        }
+
+        return array_values($names);
+    }
+
+    /**
      * Tags for many cards in one query.
      *
      * @param int[] $cardIds

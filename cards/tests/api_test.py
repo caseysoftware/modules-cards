@@ -176,6 +176,20 @@ def main():
     check(card(body['data']['board'], c)['tags'] == [concrete], 'moving between tag columns swaps the tag')
     code, body = admin.call('tag_remove', {'card_id': c, 'tag': concrete})
     check(card(body['data']['board'], c)['tags'] == [], 'tag removed')
+    code, body = admin.call('tag_add', {'card_id': c, 'name': 'Rough-in, electrical ,, ROUGH-IN, '})
+    board = body['data']['board']
+    names = sorted(t['name'].lower() for t in board['tags'] if t['id'] in card(board, c)['tags'])
+    check(code == 200 and names == ['electrical', 'rough-in'], 'comma separated input adds separate tags, repeats once (%s)' % names)
+    code, body = admin.call('tag_add', {'card_id': c, 'name': 'ok, ' + 'x' * 65})
+    check(code == 400 and len(card(admin.call('board', {'project_id': PROJECT})[1]['data']['board'], c)['tags']) == 2, 'a too-long tag in the list adds none of them')
+    code, body = admin.call('tag_add', {'card_id': c, 'name': ', ,'})
+    check(code == 400, 'only commas is refused')
+    code, body = admin.call('tag_add', {'card_id': c, 'name': ','.join('t%d' % i for i in range(19))})
+    check(code == 400 and len(card(admin.call('board', {'project_id': PROJECT})[1]['data']['board'], c)['tags']) == 2, 'going past 20 tags adds none of them')
+    code, body = admin.call('tag_add', {'card_id': c, 'tag': concrete})
+    check(code == 200 and concrete in card(body['data']['board'], c)['tags'], 'an existing tag can be added by id')
+    for t in list(card(body['data']['board'], c)['tags']):
+        admin.call('tag_remove', {'card_id': c, 'tag': t})
 
     print('== comments and activity')
     code, body = admin.call('comment', {'card_id': b, 'text': 'Lumber arrives Tuesday <b>bold?</b>', 'open_card': b})

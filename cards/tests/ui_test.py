@@ -170,10 +170,10 @@ def main():
         page.wait_for_selector('.w2p-cards-activity.is-comment')
         text = page.locator('.w2p-cards-drawer').inner_text()
         check('Reading was 3.1 lbs' in text and 'changed the priority from "Normal" to "High"' in text, 'drawer edits show up in the activity')
-        page.fill('.w2p-cards-drawer input[aria-label="Add tag"]', 'Inspection')
+        page.fill('.w2p-cards-drawer input[aria-label="Add tags, separated by commas"]', 'Inspection, Punch list')
         page.keyboard.press('Enter')
-        page.wait_for_selector('.w2p-cards-drawer .w2p-cards-tag:has-text("Inspection")')
-        check(True, 'tag added from the drawer')
+        page.wait_for_selector('.w2p-cards-drawer .w2p-cards-tag:has-text("Punch list")')
+        check(page.locator('.w2p-cards-drawer .w2p-cards-tag:has-text("Inspection")').count() == 1, 'comma separated tags added from the drawer')
         if shots:
             page.screenshot(path=os.path.join(shots, '3-drawer.png'))
         page.keyboard.press('Escape')
