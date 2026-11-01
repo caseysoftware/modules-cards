@@ -1,7 +1,12 @@
 # Cards for web2project
 
-A Kanban board module for web2project 5: cards you drag between columns,
-attached to a project and optionally to one of its tasks.
+Cards adds a Trello-style Kanban board to web2project. Cards belong to projects, can link to tasks, and support drag and drop, subcards, dependencies and tags. They also have an all-projects view, Search and Calendar integration, and a full activity log.
+
+web2project has always been good at structured plans but weak at fast, visual day-to-day tracking. Cards closes that gap while keeping the project plan the source of truth. Cards stay tied to their tasks and their permissions, but working the board never changes the schedule.
+
+=== 
+
+## Features
 
 - **All projects board** (the default) with every card you may see, and a
   **board per project**. Columns come from a global status list. Drag cards
