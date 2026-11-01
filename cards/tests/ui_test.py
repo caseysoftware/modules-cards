@@ -204,6 +204,26 @@ def main():
         page.reload()
         page.wait_for_selector('.w2p-cards-card[data-id="%d"]' % c1)
 
+        print('== copy')
+        page.click('.w2p-cards-card[data-id="%d"]' % c3)
+        page.wait_for_selector('.w2p-cards-drawer button:has-text("Copy card")')
+        page.click('.w2p-cards-drawer button:has-text("Copy card")')
+        page.wait_for_selector('.w2p-cards-overlay input[aria-label="Name of the copy"]')
+        check(page.input_value('.w2p-cards-overlay input[aria-label="Name of the copy"]') == 'Frame interior walls', 'copy dialog starts with the card name')
+        page.fill('.w2p-cards-overlay input[aria-label="Name of the copy"]', 'Frame garage walls')
+        page.select_option('.w2p-cards-overlay select[aria-label="Status of the copies"]', str(statuses['To Do']))
+        page.click('.w2p-cards-overlay button:has-text("Copy")')
+        page.wait_for_selector('.w2p-cards-toast:has-text("Copied")')
+        toast = page.locator('.w2p-cards-toast:has-text("Copied")').first.inner_text()
+        page.wait_for_selector('.w2p-cards-card:has-text("Frame garage walls")')
+        board = api.call('board', {'project_id': PROJECT})[1]['data']['board']
+        copy = [c for c in board['cards'] if c['name'] == 'Frame garage walls'][-1]
+        kids = [c for c in board['cards'] if c['parent'] == copy['id']]
+        check('Copied 2 cards' in toast and copy['status'] == statuses['To Do'] and len(kids) == 1, 'copying from the drawer copies the card and its subcard (%s)' % toast)
+        check(page.input_value('.w2p-cards-drawer input[aria-label="Card name"]') == 'Frame interior walls', 'the drawer stays on the original')
+        page.keyboard.press('Escape')
+        page.wait_for_selector('.w2p-cards-drawer', state='detached')
+
         print('== keyboard')
         page.focus('.w2p-cards-card[data-id="%d"]' % c5)
         page.keyboard.press('Enter')

@@ -130,7 +130,7 @@
 .w2p-cards-activity .w2p-cards-avatar { margin-left: 0; }
 .w2p-cards-activity-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .w2p-cards-activity.is-comment .w2p-cards-activity-text { background: var(--cards-ground); border-radius: 6px; padding: 6px 8px; }
-.w2p-cards-drawer-foot { margin-top: 20px; }
+.w2p-cards-drawer-foot { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
 
 /* Dialogs */
 .w2p-cards-overlay { position: fixed; inset: 0; background: rgba(31, 35, 40, 0.35); z-index: 1055; display: flex; align-items: flex-start; justify-content: center; padding: 10vh 16px 16px; }

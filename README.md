@@ -16,6 +16,8 @@ attached to a project and optionally to one of its tasks.
   outside it.
 - **Subcards and dependencies** between cards of the same project, with loop
   detection.
+- **Copy a card** (the drawer's **Copy card…**): a deep copy of the card,
+  all its subcards and their dependencies. See [Copying cards](#copying-cards).
 - **Soft WIP limits** per board: a column header turns amber at its limit
   and red above it. Moves are never blocked.
 - **Cards tab** on the project view (a compact board) and on the task view
@@ -105,6 +107,26 @@ user can't see.
   card's id. They are display only; everything links by id, so a key keeps
   working after the project's short name changes or the card follows its
   task to another project (the number never changes).
+
+## Copying cards
+
+**Copy card…** in the drawer copies the card and every subcard under it, in
+the same project. You name the top copy and can give all copies one status
+(say, **To Do** when copying last week's list) or keep each card's status.
+
+- Copied: name, description, priority, owner, due date, linked task, tags,
+  and the tree of subcards. Not copied: comments and the activity log; each
+  copy's log starts with "created this card as a copy of …", and the
+  original logs the copy.
+- Dependencies between cards in the copy are recreated between the copies.
+  When a copied card waits on a card outside the copy, its copy waits on the
+  same card. Cards outside the copy that wait on an original are left alone.
+- The copy sits right after the original, under the same parent; copying a
+  subcard gives its parent another subcard.
+- Subcards you can't see aren't copied (nor anything under them), and
+  neither are dependencies on cards you can't see. The confirmation says
+  how many were left out.
+- Needs the Cards **add** right. A copy can hold at most 500 cards.
 
 ## The all projects board
 
@@ -212,10 +234,13 @@ W2P_DIR=/path/to/web2project python3 tests/sweep_test.py   # run last: it moves 
 
 ## Upgrading
 
-From 0.1.0: copy the new `cards/` folder over the installed one (or
-`git pull` a linked install), then **System Admin → View Modules →
-upgrade** on Cards. 0.2.0 registers cards as permission items so Smart
-Search and History can check single cards.
+Copy the new `cards/` folder over the installed one (or `git pull` a
+linked install), then **System Admin → View Modules → upgrade** on Cards.
+
+- 0.3.0 (comma-separated tags, closing the drawer by clicking outside it,
+  deep copy) has no database changes.
+- 0.2.0 registers cards as permission items so Smart Search and History can
+  check single cards.
 
 ## Third-party
 

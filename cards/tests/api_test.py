@@ -242,6 +242,79 @@ def main():
     code, body = worker.call('settings', {'project_id': PROJECT, 'settings': {}})
     check(code == 403 or (code == 200), 'board settings need project edit rights (got %s)' % code)
 
+    print('== deep copy')
+    def mk(name, parent=0, status='Backlog'):
+        return admin.call('create', {'project_id': PROJECT, 'parent': parent, 'fields': {'name': name, 'status': statuses[status]}})[1]['data']['created']
+    top = mk('Weekly list')
+    s1 = mk('Check deliveries', top, 'Done')
+    s1a = mk('Call the lumber yard', s1)
+    s2 = mk('Walk the site', top)
+    outside = mk('Permit posted')
+    waiter = mk('Order more nails')
+    admin.call('dependency_add', {'card_id': s2, 'requires': s1})
+    admin.call('dependency_add', {'card_id': top, 'requires': outside})
+    admin.call('dependency_add', {'card_id': waiter, 'requires': s1})
+    admin.call('tag_add', {'card_id': top, 'name': 'weekly, site'})
+    admin.call('tag_add', {'card_id': s1a, 'name': 'phone'})
+    admin.call('update', {'card_id': s1a, 'version': 1, 'fields': {'due': '2026-11-20', 'priority': 1, 'description': 'Ask about Tuesday'}})
+    before = admin.call('board', {'project_id': PROJECT})[1]['data']['board']
+    code, body = admin.call('copy', {'card_id': top, 'name': 'Weekly list (Nov 9)', 'status': statuses['To Do']})
+    check(code == 200 and body['data']['copied'] == 4 and body['data']['skipped'] == 0, 'copy creates the card and its 3 subcards (%s)' % (body and body.get('data', {}).get('copied')))
+    board = body['data']['board']
+    root = body['data']['created']
+    copies = {c['id']: c for c in board['cards'] if c['id'] not in [x['id'] for x in before['cards']]}
+    byname = {c['name']: c for c in copies.values()}
+    check(set(byname) == {'Weekly list (Nov 9)', 'Check deliveries', 'Call the lumber yard', 'Walk the site'}, 'copies have the names (top one renamed)')
+    check(card(board, root)['parent'] == 0 and byname['Check deliveries']['parent'] == root
+          and byname['Walk the site']['parent'] == root and byname['Call the lumber yard']['parent'] == byname['Check deliveries']['id'],
+          'the tree is copied: subcards hang off the copies')
+    check(all(c['status'] == statuses['To Do'] for c in copies.values()), 'every copy gets the chosen status')
+    cs1, cs2 = byname['Check deliveries']['id'], byname['Walk the site']['id']
+    def requires(card_id):
+        return sorted(int(r[0]) for r in sql('select dependency_requires from card_dependencies where dependency_card = %d' % card_id))
+    check(requires(cs2) == [cs1], 'a dependency inside the copy is between the copies')
+    check(requires(root) == [outside], 'a dependency on an outside card is kept')
+    check(requires(waiter) == [s1] and requires(cs1) == [], 'outside cards waiting on an original are left alone')
+    check(requires(s2) == [s1] and requires(top) == [outside] and card(board, s1)['status'] == statuses['Done'], 'the originals are unchanged')
+    tagname = {t['id']: t['name'].lower() for t in board['tags']}
+    check(sorted(tagname[t] for t in card(board, root)['tags']) == ['site', 'weekly'], 'tags are copied')
+    lumber = byname['Call the lumber yard']
+    check(lumber['due'] == '2026-11-20' and lumber['priority'] == 1, 'due date and priority are copied')
+    detail = admin.call('card', {'card_id': lumber['id']})[1]['data']['card']
+    check(detail['description'] == 'Ask about Tuesday', 'description is copied')
+    check(any(a['type'] == 'copied' and a['field'] == 'from' and a['related'] == s1a for a in detail['activity'])
+          and not any(a['type'] == 'created' for a in detail['activity']), 'the copy logs where it came from')
+    orig = admin.call('card', {'card_id': top})[1]['data']['card']
+    check(any(a['type'] == 'copied' and a['field'] == 'to' and a['related'] == root for a in orig['activity']), 'the original logs the copy')
+    ranks = [c['id'] for c in board['cards']]
+    check(ranks.index(root) == ranks.index(top) + 1, 'the copy is placed right after the original')
+
+    code, body = admin.call('copy', {'card_id': s1})
+    sub = body['data']['created']
+    board = body['data']['board']
+    check(code == 200 and card(board, sub)['parent'] == top and card(board, sub)['name'] == 'Check deliveries'
+          and card(board, sub)['status'] == statuses['Done'], 'copying a subcard makes a sibling; status kept by default')
+    code, body = admin.call('copy', {'card_id': top, 'name': '  '})
+    check(code == 400, 'a blank name is refused')
+    code, body = admin.call('copy', {'card_id': top, 'status': 9999})
+    check(code == 400, 'an unknown status is refused')
+
+    # A subcard on a private task stays out of a copy made by someone who can't see it.
+    hidden_sub = admin.call('create', {'project_id': PROJECT, 'parent': top, 'fields': {'name': 'Secret subcard', 'status': statuses['To Do'], 'task': private_task}})[1]['data']['created']
+    admin.call('dependency_add', {'card_id': s2, 'requires': secret})
+    code, body = worker.call('copy', {'card_id': top})
+    if code == 403:
+        check(True, 'worker without add rights can\'t copy (403)')
+    else:
+        data = body['data']
+        wcopy = card(data['board'], data['created'])
+        names = [c['name'] for c in data['board']['cards'] if c['parent'] == data['created']]
+        check(code == 200 and data['skipped'] == 1 and 'Secret subcard' not in names, 'subcards the user can\'t see are not copied (%s)' % names)
+        copied_s2 = [c for c in data['board']['cards'] if c['parent'] == data['created'] and c['name'] == 'Walk the site'][0]
+        check(secret not in requires(copied_s2['id']) and requires(copied_s2['id']), 'dependencies on cards the user can\'t see are not copied')
+    code, body = worker.call('copy', {'card_id': hidden_sub})
+    check(code == 404, 'a card the user can\'t see can\'t be copied')
+
     print()
     print('%d failure(s)' % len(failures) if failures else 'all API checks passed')
     return 1 if failures else 0

@@ -5,7 +5,7 @@ if (!defined('W2P_BASE_DIR')) {
 
 $config = array();
 $config['mod_name'] = 'Cards';
-$config['mod_version'] = '0.2.0';
+$config['mod_version'] = '0.3.0';
 $config['mod_directory'] = 'cards';
 $config['mod_setup_class'] = 'CSetupCards';
 $config['mod_type'] = 'user';

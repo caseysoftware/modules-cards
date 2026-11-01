@@ -543,6 +543,191 @@ class CCardStore
         return $ids;
     }
 
+    /** Most cards one copy may create. */
+    const MAX_COPY = 500;
+
+    /**
+     * Deep copy: the card, all its subcards (recursively) and their
+     * dependencies, in the same project.
+     *
+     * - The copy of the card sits next to the original (same parent), right
+     *   after it in the project's order; the subcard copies follow it.
+     * - Name, description, priority, owner, due date, linked task and tags
+     *   are copied. Every copy gets $status (null: each keeps its original's).
+     *   Comments and activity are not copied.
+     * - A dependency between two copied cards is recreated between their
+     *   copies. A dependency on a card outside the copy is kept: the copy
+     *   waits on the same card. Cards outside that wait on an original are
+     *   left alone.
+     * - Cards in $hidden (ones the user can't see) are not copied, nor their
+     *   subcards, and dependencies on them are not recreated.
+     *
+     * @param int         $cardId
+     * @param string|null $name   name of the top copy (null: the original's)
+     * @param int|null    $status
+     * @param int[]       $hidden
+     *
+     * @return array{root: int, map: array<int, int>, skipped: int}|false
+     */
+    public function copy($cardId, $name = null, $status = null, array $hidden = array())
+    {
+        $card = self::load($cardId);
+        if (!$card) {
+            return $this->fail('card', 'The card no longer exists.');
+        }
+        $this->errors = array();
+        if (null !== $name) {
+            $name = trim((string) $name);
+            if ('' === $name) {
+                return $this->fail('name', 'Give the copy a name.');
+            }
+            if (strlen($name) > 255) {
+                return $this->fail('name', 'The name can be at most 255 characters.');
+            }
+        }
+        if (null !== $status && !CCardStatuses::get((int) $status)) {
+            return $this->fail('status', 'Unknown status.');
+        }
+        $projectId = (int) $card['card_project'];
+        $hidden = array_flip(array_map('intval', $hidden));
+
+        // The tree, parents before children, without hidden subtrees.
+        $rows = array((int) $card['card_id'] => $card);
+        $frontier = array((int) $card['card_id']);
+        $skipped = 0;
+        while ($frontier) {
+            $q = new w2p_Database_Query();
+            $q->addTable('cards');
+            $q->addQuery('*');
+            $q->addWhere('card_parent IN (' . implode(',', $frontier) . ')');
+            $q->addWhere('card_project = ' . $projectId);
+            $q->addOrder('card_rank, card_id');
+            $frontier = array();
+            foreach ($q->loadList() as $row) {
+                $id = (int) $row['card_id'];
+                if (isset($rows[$id])) {
+                    continue;
+                }
+                if (isset($hidden[$id])) {
+                    $skipped += count(self::withDescendants($id));
+                    continue;
+                }
+                $rows[$id] = $row;
+                $frontier[] = $id;
+            }
+            if (count($rows) > self::MAX_COPY) {
+                return $this->fail('copy', 'A copy can include at most ' . self::MAX_COPY . ' cards.');
+            }
+        }
+
+        // Ranks: right after the original, before whatever follows it.
+        $q = new w2p_Database_Query();
+        $q->addTable('cards');
+        $q->addQuery('MIN(card_rank)');
+        $q->addWhere('card_project = ' . $projectId);
+        $q->addWhere('card_rank > ' . $q->quote($card['card_rank']));
+        $next = $q->loadResult();
+        $next = $next ? $next : null;
+        $rank = $card['card_rank'];
+
+        $tags = CCardTags::forCards(array_keys($rows));
+        $tagIds = array();
+        foreach ($tags as $ids) {
+            $tagIds = array_merge($tagIds, $ids);
+        }
+        $tagNames = CCardTags::names($tagIds);
+        $map = array();
+        $now = (new w2p_Database_Query())->dbfnNowWithTZ();
+        $longest = 0;
+        foreach ($rows as $id => $row) {
+            $isRoot = ($id === (int) $card['card_id']);
+            $rank = CCardRank::between($rank, $next);
+            $longest = max($longest, strlen($rank));
+
+            $q = new w2p_Database_Query();
+            $q->addTable('cards');
+            $q->addInsert('card_project', $projectId);
+            $q->addInsert('card_parent', $isRoot ? (int) $row['card_parent'] : $map[(int) $row['card_parent']]);
+            $q->addInsert('card_name', ($isRoot && null !== $name) ? $name : $row['card_name']);
+            $q->addInsert('card_description', (string) $row['card_description']);
+            $q->addInsert('card_status', null !== $status ? (int) $status : (int) $row['card_status']);
+            $q->addInsert('card_priority', (int) $row['card_priority']);
+            $q->addInsert('card_owner', (int) $row['card_owner']);
+            $q->addInsert('card_task', (int) $row['card_task']);
+            if (!empty($row['card_due_date'])) {
+                $q->addInsert('card_due_date', $row['card_due_date']);
+            }
+            $q->addInsert('card_rank', $rank);
+            $q->addInsert('card_creator', $this->userId);
+            $q->addInsert('card_created', $now);
+            $q->addInsert('card_updator', $this->userId);
+            $q->addInsert('card_updated', $now);
+            $q->addInsert('card_version', 1);
+            if (!$q->exec()) {
+                if ($map) {
+                    $this->delete($map[(int) $card['card_id']]);
+                }
+
+                return $this->fail('store', 'The copy could not be saved.');
+            }
+            $newId = (int) $GLOBALS['db']->Insert_ID();
+            $map[$id] = $newId;
+
+            foreach (isset($tags[$id]) ? $tags[$id] : array() as $tagId) {
+                CCardTags::attach($newId, $tagId);
+            }
+            CCardActivity::log($newId, $this->userId, CCardActivity::COPIED, 'from', '', self::label($row), $id);
+            if (!empty($tags[$id])) {
+                $names = array_intersect_key($tagNames, array_flip($tags[$id]));
+                CCardActivity::log($newId, $this->userId, CCardActivity::TAG_ADDED, 'tags', '', implode(', ', $names));
+            }
+            addHistory('cards', $newId, 'add', ($isRoot && null !== $name) ? $name : $row['card_name'], $projectId);
+        }
+
+        $rootCopy = self::load($map[(int) $card['card_id']]);
+        CCardActivity::log($card['card_id'], $this->userId, CCardActivity::COPIED, 'to', '', self::label($rootCopy), $rootCopy['card_id']);
+        if ((int) $card['card_parent']) {
+            CCardActivity::log($card['card_parent'], $this->userId, CCardActivity::SUBCARD_ADDED, '', '', self::label($rootCopy), $rootCopy['card_id']);
+        }
+
+        // Dependencies of the copied cards: inside the set, between the
+        // copies; on a card outside it, the copy waits on that card too.
+        // Copies have no other links yet, so none of these can close a loop.
+        $q = new w2p_Database_Query();
+        $q->addTable('card_dependencies');
+        $q->addQuery('dependency_card, dependency_requires');
+        $q->addWhere('dependency_card IN (' . implode(',', array_keys($map)) . ')');
+        foreach ($q->loadList() as $dep) {
+            $requires = (int) $dep['dependency_requires'];
+            if (isset($hidden[$requires])) {
+                continue;
+            }
+            if (!isset($map[$requires])) {
+                $target = self::load($requires);
+                if (!$target || (int) $target['card_project'] !== $projectId) {
+                    continue;
+                }
+            }
+            $from = $map[(int) $dep['dependency_card']];
+            $to = isset($map[$requires]) ? $map[$requires] : $requires;
+            $i = new w2p_Database_Query();
+            $i->addTable('card_dependencies');
+            $i->addInsert('dependency_card', $from);
+            $i->addInsert('dependency_requires', $to);
+            $i->exec();
+            $fromCard = self::load($from);
+            $toCard = self::load($to);
+            CCardActivity::log($from, $this->userId, CCardActivity::DEPENDENCY_ADDED, 'waits_on', '', self::label($toCard), $to);
+            CCardActivity::log($to, $this->userId, CCardActivity::DEPENDENCY_ADDED, 'blocks', '', self::label($fromCard), $from);
+        }
+
+        if ($longest > self::RANK_REBALANCE_LENGTH) {
+            $this->rebalance($projectId);
+        }
+
+        return array('root' => $map[(int) $card['card_id']], 'map' => $map, 'skipped' => $skipped);
+    }
+
     /**
      * Removes every dependency row touching these cards, logging on the
      * cards outside the set.

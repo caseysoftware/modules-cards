@@ -257,6 +257,44 @@ switch ($op) {
         $respond((int) $card['card_project']);
         break;
 
+    case 'copy':
+        // Deep copy: the card, its subcards and their dependencies. Cards the
+        // user can't see stay out of the copy.
+        $requireRight('add');
+        $card = $visibleCard($int('card_id'));
+        $hidden = array();
+        foreach (CCardStore::withDescendants($card['card_id']) as $id) {
+            if (!$access->canSeeCard($id)) {
+                $hidden[] = $id;
+            }
+        }
+        $q = new w2p_Database_Query();
+        $q->addTable('card_dependencies');
+        $q->addQuery('DISTINCT dependency_requires');
+        $q->addWhere('dependency_card IN (' . implode(',', CCardStore::withDescendants($card['card_id'])) . ')');
+        foreach ($q->loadColumn() as $id) {
+            if (!$access->canSeeCard((int) $id)) {
+                $hidden[] = (int) $id;
+            }
+        }
+        $copied = $store->copy(
+            $card['card_id'],
+            isset($in['name']) ? (string) $in['name'] : null,
+            isset($in['status']) && '' !== $in['status'] && null !== $in['status'] ? (int) $in['status'] : null,
+            $hidden
+        );
+        if (!$copied) {
+            $failed($store, (int) $card['card_project']);
+        }
+        $copy = CCardStore::load($copied['root']);
+        $respond((int) $card['card_project'], array(
+            'created' => $copied['root'],
+            'copied' => count($copied['map']),
+            'skipped' => $copied['skipped'],
+            'key' => CCardStore::key($copy),
+        ));
+        break;
+
     case 'tag_add':
         $requireRight('edit');
         $card = $visibleCard($int('card_id'));

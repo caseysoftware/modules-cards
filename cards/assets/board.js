@@ -1008,22 +1008,63 @@
         });
         drawer.appendChild(this.section('Activity', activity));
 
+        var foot = [];
+        if (can.add) {
+            foot.push(el('button', { type: 'button', className: 'w2p-cards-button', text: 'Copy card…', onClick: function () { self.copyDialog(card); } }));
+        }
         if (can['delete']) {
-            drawer.appendChild(el('div', { className: 'w2p-cards-drawer-foot' }, [
-                el('button', { type: 'button', className: 'w2p-cards-button is-danger', text: 'Delete card', onClick: function () {
-                    var message = card.subcards ? 'This also deletes its ' + card.subcards + ' subcard(s).' : 'This can\'t be undone.';
-                    self.confirmDialog('Delete ' + card.key + '?', message, 'Delete').then(function (ok) {
-                        if (ok) {
-                            self.change('delete', { card_id: card.id }).then(function () { self.closeDrawer(); }).catch(function () {});
-                        }
-                    });
-                } })
-            ]));
+            foot.push(el('button', { type: 'button', className: 'w2p-cards-button is-danger', text: 'Delete card', onClick: function () {
+                var message = card.subcards ? 'This also deletes its ' + card.subcards + ' subcard(s).' : 'This can\'t be undone.';
+                self.confirmDialog('Delete ' + card.key + '?', message, 'Delete').then(function (ok) {
+                    if (ok) {
+                        self.change('delete', { card_id: card.id }).then(function () { self.closeDrawer(); }).catch(function () {});
+                    }
+                });
+            } }));
+        }
+        if (foot.length) {
+            drawer.appendChild(el('div', { className: 'w2p-cards-drawer-foot' }, foot));
         }
 
         drawer.scrollTop = scroll;
         var refocus = focusedName && drawer.querySelector('[data-focus="' + focusedName + '"]');
         if (refocus) { refocus.focus(); }
+    };
+
+    /**
+     * Deep copy: the card, its subcards and their dependencies. The copy
+     * shows on the board; the drawer stays on the original.
+     */
+    Board.prototype.copyDialog = function (card) {
+        var self = this;
+        var name = el('input', { type: 'text', maxlength: '255', value: card.name, 'aria-label': 'Name of the copy' });
+        var status = el('select', { 'aria-label': 'Status of the copies' }, [option('', 'Keep each card\'s status', true)].concat(
+            this.data.statuses.map(function (s) { return option(s.id, s.name); })));
+        var error = el('p', { className: 'w2p-cards-error' });
+        var what = card.subcards
+            ? 'Copies this card and all its subcards, with their tags and dependencies.'
+            : 'Copies this card with its tags and dependencies.';
+        this.dialog('Copy ' + card.key, [
+            el('p', { text: what + ' Comments and activity aren\'t copied.' }),
+            el('label', { className: 'w2p-cards-field' }, ['Name', name]),
+            el('label', { className: 'w2p-cards-field' }, ['Status', status]),
+            error
+        ], [
+            {
+                label: 'Copy', primary: true, value: function () {
+                    if (!name.value.trim()) { error.textContent = 'Give the copy a name.'; name.focus(); return false; }
+                    return { name: name.value, status: status.value ? parseInt(status.value, 10) : null };
+                }
+            },
+            { label: 'Cancel', value: null }
+        ]).then(function (result) {
+            if (!result) { return; }
+            self.change('copy', { card_id: card.id, name: result.name, status: result.status }).then(function (data) {
+                var message = data.copied > 1 ? 'Copied ' + data.copied + ' cards as ' + data.key + '.' : 'Copied as ' + data.key + '.';
+                if (data.skipped) { message += ' ' + data.skipped + ' subcard(s) you can\'t see weren\'t copied.'; }
+                self.toast(message);
+            }).catch(function () {});
+        });
     };
 
     /** Moving from the drawer's Status menu: same checks as a drag. */
@@ -1107,6 +1148,7 @@
             case 'subcard_removed': return 'removed subcard ' + a.old + (a['new'] ? ' (' + a['new'] + ')' : '');
             case 'tag_added': return 'added tag ' + q(a['new']);
             case 'tag_removed': return 'removed tag ' + q(a.old);
+            case 'copied': return a.field === 'to' ? 'copied this card as ' + a['new'] : 'created this card as a copy of ' + a['new'];
             default: return a['new'];
         }
     };

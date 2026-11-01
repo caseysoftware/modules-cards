@@ -20,6 +20,7 @@ class CCardActivity
     const SUBCARD_REMOVED = 'subcard_removed';
     const TAG_ADDED = 'tag_added';
     const TAG_REMOVED = 'tag_removed';
+    const COPIED = 'copied';
     const SYSTEM = 'system';
 
     /**
