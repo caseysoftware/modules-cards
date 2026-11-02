@@ -85,6 +85,21 @@
         return parseInt(m[1], 10) === new Date().getFullYear() ? text : text + ', ' + m[1];
     }
 
+    /** "Mon, Nov 9" (with the year when it isn't this year). */
+    function longDate(ymd) {
+        var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd || '');
+        if (!m) { return ymd || ''; }
+        var d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+        return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ', ' + shortDate(ymd);
+    }
+
+    /** Today in this browser, as YYYY-MM-DD. */
+    function isoToday() {
+        var d = new Date();
+        var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    }
+
     /** Inline style for a project pill: its color, with readable text. */
     function projectColors(hex) {
         hex = /^[0-9a-fA-F]{6}$/.test(hex || '') ? hex : 'D0D7DE';
@@ -560,6 +575,13 @@
         if (fields.priority && card.priority === -1) { meta.appendChild(el('span', { text: '▼ Low' })); }
         if (fields.due && card.due && !this.isAll) { meta.appendChild(el('span', { text: 'Due ' + card.due })); }
         if (hasSubcards && !this.isAll) { meta.appendChild(el('span', { text: subcardText })); }
+        if (card.repeats !== null && card.repeats !== undefined) {
+            meta.appendChild(el('span', {
+                className: 'w2p-cards-repeats' + (card.repeats ? '' : ' is-paused'),
+                title: card.repeats ? 'This card repeats' : 'This card\'s repeat is paused',
+                text: card.repeats ? '↻ Repeats' : '↻ Paused'
+            }));
+        }
         if (fields.owner && card.owner) {
             var owner = this.users[card.owner];
             var name = owner ? owner.name : '#' + card.owner;
@@ -1067,6 +1089,44 @@
         }
         drawer.appendChild(this.section('Dependencies', deps));
 
+        // Repeat: a copy of this card (and its subcards) on a schedule.
+        var repeat = [];
+        var sched = card.schedule;
+        var canRepeat = can.add && edit;
+        if (!sched) {
+            repeat.push(el('p', { className: 'w2p-cards-muted', text: 'This card doesn\'t repeat.' }));
+        } else {
+            repeat.push(el('p', { className: 'w2p-cards-repeat-summary' }, [
+                el('strong', { text: sched.summary }),
+                sched.active ? ' · next copy ' + longDate(sched.next) : ' · paused'
+            ]));
+            var parts = ['Copies are named "' + (sched.name || '{name}') + '"'];
+            parts.push(sched.status && this.statuses[sched.status] ? 'go to ' + this.statuses[sched.status].name : 'keep each card\'s status');
+            if (sched.shift) { parts.push('due dates move with each copy'); }
+            if (sched.skip_open) { parts.push('a copy is skipped while the last one is open'); }
+            repeat.push(el('p', { className: 'w2p-cards-muted', text: parts.join('; ') + '. Runs as ' + sched.user_name + '.' }));
+            if (sched.note) {
+                repeat.push(el('p', { className: 'w2p-cards-repeat-note' + (sched.active ? '' : ' is-paused'), text: sched.note }));
+            }
+            if (sched.last_copy) {
+                repeat.push(el('div', { className: 'w2p-cards-row' }, [el('span', { className: 'w2p-cards-muted', text: 'Last copy' }), this.cardLink(sched.last_copy)]));
+            }
+        }
+        if (canRepeat) {
+            var repeatButtons = [el('button', {
+                type: 'button', className: 'w2p-cards-button',
+                text: !sched ? 'Repeat this card…' : (sched.active ? 'Change…' : 'Resume…'),
+                onClick: function () { self.repeatDialog(card); }
+            })];
+            if (sched) {
+                repeatButtons.push(el('button', { type: 'button', className: 'w2p-cards-button', text: 'Stop repeating', onClick: function () {
+                    self.change('schedule_remove', { card_id: card.id }).then(function () { self.toast('This card no longer repeats.'); }).catch(function () {});
+                } }));
+            }
+            repeat.push(el('div', { className: 'w2p-cards-buttons' }, repeatButtons));
+        }
+        drawer.appendChild(this.section('Repeat', repeat));
+
         // Activity
         var activity = [];
         if (edit) {
@@ -1148,6 +1208,94 @@
         });
     };
 
+    /**
+     * Sets up (or changes) a card's repeat: how often, from when, and what
+     * each copy looks like. Copies are deep copies, like Copy card.
+     */
+    Board.prototype.repeatDialog = function (card) {
+        var self = this;
+        var sched = card.schedule || {};
+        var today = isoToday();
+        var rule = el('select', { 'aria-label': 'Repeat' }, [
+            option('weekly', 'Every week', (sched.rule || 'weekly') === 'weekly'),
+            option('monthly', 'Every month', sched.rule === 'monthly'),
+            option('days', 'Every few days', sched.rule === 'days')
+        ]);
+        var weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        var chosenDays = sched.rule === 'weekly' ? sched.days : [new Date().getDay() || 7];
+        var dayBoxes = weekdays.map(function (name, i) {
+            return el('label', { className: 'w2p-cards-day' }, [
+                el('input', { type: 'checkbox', value: String(i + 1), checked: chosenDays.indexOf(i + 1) !== -1, 'aria-label': name }),
+                ' ' + name
+            ]);
+        });
+        var weekly = el('div', { className: 'w2p-cards-field' }, ['On', el('div', { className: 'w2p-cards-days' }, dayBoxes)]);
+        var monthDay = el('select', { 'aria-label': 'Day of the month' }, Array.apply(null, Array(31)).map(function (x, i) {
+            var d = i + 1;
+            return option(d, d === 31 ? '31 (or the last day)' : String(d), sched.rule === 'monthly' ? sched.days === d : d === 1);
+        }));
+        var monthly = el('label', { className: 'w2p-cards-field' }, ['On day', monthDay]);
+        var every = el('input', { type: 'number', min: '1', max: '365', value: sched.rule === 'days' ? String(sched.days) : '14', 'aria-label': 'Every how many days' });
+        var everyN = el('label', { className: 'w2p-cards-field' }, ['Every how many days', every]);
+        var start = el('input', { type: 'date', value: sched.start && sched.start > today ? sched.start : today, min: today, 'aria-label': 'Starting' });
+        var name = el('input', { type: 'text', maxlength: '255', value: sched.name !== undefined ? sched.name : '{name} – {date}', 'aria-label': 'Name of each copy' });
+        var todo = this.data.statuses.filter(function (s) { return s.name === 'To Do'; })[0];
+        var defaultStatus = sched.rule ? sched.status : (todo ? todo.id : 0);
+        var status = el('select', { 'aria-label': 'Status of the copies' }, [option(0, 'Keep each card\'s status', !defaultStatus)].concat(
+            this.data.statuses.map(function (s) { return option(s.id, s.name, s.id === defaultStatus); })));
+        var shift = el('input', { type: 'checkbox', checked: sched.rule ? sched.shift : true });
+        var skip = el('input', { type: 'checkbox', checked: !!sched.skip_open });
+        var error = el('p', { className: 'w2p-cards-error' });
+        var showRule = function () {
+            weekly.style.display = rule.value === 'weekly' ? '' : 'none';
+            monthly.style.display = rule.value === 'monthly' ? '' : 'none';
+            everyN.style.display = rule.value === 'days' ? '' : 'none';
+        };
+        rule.addEventListener('change', showRule);
+        showRule();
+
+        this.dialog((card.schedule ? 'Change the repeat of ' : 'Repeat ') + card.key, [
+            el('p', { text: 'On each date this card is copied with its subcards, tags and dependencies, like Copy card. Copies are made when the day comes, not at a set time.' }),
+            el('label', { className: 'w2p-cards-field' }, ['Repeat', rule]),
+            weekly, monthly, everyN,
+            el('label', { className: 'w2p-cards-field' }, ['Starting', start]),
+            el('label', { className: 'w2p-cards-field' }, ['Name of each copy', name]),
+            el('p', { className: 'w2p-cards-hint', text: '{name} is this card\'s name, {date} the copy\'s date ("Nov 9"), {week} the week number, {month} and {year}.' }),
+            el('label', { className: 'w2p-cards-field' }, ['Status of the copies', status]),
+            el('label', { className: 'w2p-cards-radio' }, [shift, ' Move due dates with each copy']),
+            el('p', { className: 'w2p-cards-hint', text: 'This card\'s due dates are for the first copy; each later copy moves them by the days since then.' }),
+            el('label', { className: 'w2p-cards-radio' }, [skip, ' Skip a copy while the last one is still open']),
+            error
+        ], [
+            {
+                label: 'Save', primary: true, value: function () {
+                    var days;
+                    if (rule.value === 'weekly') {
+                        days = dayBoxes.map(function (l) { return l.querySelector('input'); })
+                            .filter(function (i) { return i.checked; }).map(function (i) { return parseInt(i.value, 10); });
+                        if (!days.length) { error.textContent = 'Pick at least one day of the week.'; return false; }
+                    } else if (rule.value === 'monthly') {
+                        days = parseInt(monthDay.value, 10);
+                    } else {
+                        days = parseInt(every.value, 10);
+                        if (!(days >= 1 && days <= 365)) { error.textContent = 'Repeat every 1 to 365 days.'; every.focus(); return false; }
+                    }
+                    return {
+                        rule: rule.value, days: days, start: start.value, name: name.value,
+                        status: parseInt(status.value, 10), shift: shift.checked, skip_open: skip.checked
+                    };
+                }
+            },
+            { label: 'Cancel', value: null }
+        ]).then(function (result) {
+            if (!result) { return; }
+            self.change('schedule_save', { card_id: card.id, schedule: result }).then(function (data) {
+                var saved = data.card && data.card.schedule;
+                if (saved) { self.toast(saved.summary + '. First copy ' + longDate(saved.next) + '.'); }
+            }).catch(function () {});
+        });
+    };
+
     /** Moving from the drawer's Status menu: same checks as a drag. */
     Board.prototype.moveFromDrawer = function (card, statusId) {
         var self = this;
@@ -1208,7 +1356,7 @@
         return select;
     };
 
-    var FIELD_LABELS = { name: 'the name', description: 'the description', status: 'the status', priority: 'the priority', owner: 'the owner', due: 'the due date', task: 'the linked task', parent: 'the parent card' };
+    var FIELD_LABELS = { name: 'the name', description: 'the description', status: 'the status', priority: 'the priority', owner: 'the owner', due: 'the due date', task: 'the linked task', parent: 'the parent card', repeat: 'the repeat' };
 
     Board.prototype.describe = function (a) {
         var q = function (v) { return '"' + v + '"'; };

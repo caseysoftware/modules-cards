@@ -73,7 +73,7 @@ class CCardStatuses
         $ids = array();
         foreach (self::all() as $status) {
             if (self::CLOSED == $status['category']) {
-                $ids[] = $status['id'];
+                $ids[] = (int) $status['id'];
             }
         }
 

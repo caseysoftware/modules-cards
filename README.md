@@ -23,6 +23,8 @@ attached to a project and optionally to one of its tasks.
   detection.
 - **Copy a card** (the drawer's **Copy card…**): a deep copy of the card,
   all its subcards and their dependencies. See [Copying cards](#copying-cards).
+- **Repeating cards**: copy a card on a schedule, such as every Monday or
+  on the 1st of each month. See [Repeating cards](#repeating-cards).
 - **Soft WIP limits** per board: a column header turns amber at its limit
   and red above it. Moves are never blocked.
 - **Cards tab** on the project view (a compact board) and on the task view
@@ -133,6 +135,43 @@ the same project. You name the top copy and can give all copies one status
   how many were left out.
 - Needs the Cards **add** right. A copy can hold at most 500 cards.
 
+## Repeating cards
+
+A card can repeat: on each date of its schedule, it's copied the same way
+as **Copy card…** (with its subcards, tags and dependencies). Use it for a
+weekly checklist or a monthly report: keep the original as the template,
+for example in a status you hide from the board.
+
+Set it up from the drawer's **Repeat** section:
+
+- **How often**: every week on chosen days, every month on a day (29 to 31
+  fall on the last day of shorter months), or every N days.
+- **Starting**: the first date; it can't be in the past.
+- **Name of each copy**: `{name}` is the card's name, `{date}` the copy's
+  date ("Nov 9"), `{iso}` the date as 2026-11-09, `{week}` the ISO week
+  number, `{month}` and `{year}`. The default is `{name} – {date}`.
+- **Status of the copies**, or keep each card's status.
+- **Move due dates with each copy**: the original's due dates are for the
+  first copy; each later copy moves them by the number of days since then.
+- **Skip a copy while the last one is still open**.
+
+How it runs:
+
+- Copies are made by date, not at a set time: on the first cron run
+  (`queuescanner.php`) on or after the date, or the first time someone
+  loads a board, whichever comes first. Dates are the web2project server's.
+- Missed dates aren't made up: if nothing ran for three weeks, the next run
+  makes one copy and the schedule moves on to the next date after today.
+- Two runs at once can't make the same copy twice.
+- A repeat runs as the user who last saved it, with that user's rights at
+  the time of each run. If they can no longer see the card or add cards,
+  the repeat pauses, and the drawer and activity log say why. Saving it
+  again resumes it as you.
+- The board marks repeating cards with ↻. Saving, skipping, pausing and
+  stopping are all in the card's activity log. Deleting the card deletes
+  its repeat.
+- Setting up a repeat needs the Cards **add** and **edit** rights.
+
 ## The all projects board
 
 **Cards** opens on **All projects**: every card you may see in an **active**
@@ -189,12 +228,14 @@ do_card_json.php          JSON endpoint used by the board
 do_statuses_aed.php       saves the status list
 projects_tab.view.cards.php, tasks_tab.view.cards.php   the tabs
 includes/                 CardStore (writes), CardBoard (reads), CardAccess
-                          (permissions), CardMaintenance (sweep), CardRank,
+                          (permissions), CardMaintenance (sweep),
+                          CardSchedules (repeating cards), CardRank,
                           CardActivity, CardTags, CardStatuses, CardSettings,
                           CardJson, CardView
 assets/                   board.js, board.css, vendor/Sortable.min.js
-tests/                    rank_test.php, api_test.py, allview_test.py,
-                          ui_test.py, sweep_test.py
+tests/                    rank_test.php, schedule_test.php, api_test.py,
+                          allview_test.py, ui_test.py, schedule_run_test.py,
+                          sweep_test.py
 ```
 
 The board is plain JavaScript (no build step) plus SortableJS. It posts to
@@ -216,9 +257,11 @@ client. Run them from the `cards/` folder:
 ```bash
 cd cards
 php tests/rank_test.php
+php tests/schedule_test.php
 python3 tests/api_test.py
 W2P_DIR=/path/to/web2project python3 tests/allview_test.py   # after api_test.py
 python3 tests/ui_test.py --shots /tmp/shots
+W2P_DIR=/path/to/web2project python3 tests/schedule_run_test.py
 W2P_DIR=/path/to/web2project python3 tests/sweep_test.py   # run last: it moves and deletes demo tasks
 ```
 
@@ -242,6 +285,8 @@ W2P_DIR=/path/to/web2project python3 tests/sweep_test.py   # run last: it moves 
 Copy the new `cards/` folder over the installed one (or `git pull` a
 linked install), then **System Admin → View Modules → upgrade** on Cards.
 
+- 0.4.0 adds the `card_schedules` table for repeating cards. (The status
+  filter in the same release has no database changes.)
 - 0.3.0 (comma-separated tags, closing the drawer by clicking outside it,
   deep copy) has no database changes.
 - 0.2.0 registers cards as permission items so Smart Search and History can

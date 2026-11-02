@@ -178,3 +178,13 @@
     .w2p-cards-drawer { width: 100vw; }
     .w2p-cards-toolbar input[type=search] { width: 100%; }
 }
+
+/* Repeat (scheduled copies) */
+.w2p-cards-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.w2p-cards-repeat-summary { margin: 0 0 4px; }
+.w2p-cards-repeat-note { font-size: 12px; padding: 6px 8px; border-radius: 6px; background: var(--cards-amber-soft); color: var(--cards-amber); }
+.w2p-cards-repeat-note.is-paused { background: var(--cards-red-soft); color: var(--cards-red); }
+.w2p-cards-days { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
+.w2p-cards-day { display: inline-flex; gap: 4px; align-items: center; color: var(--cards-ink); }
+.w2p-cards-repeats { color: var(--cards-accent-ink); }
+.w2p-cards-repeats.is-paused { color: var(--cards-red); }

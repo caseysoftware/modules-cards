@@ -183,6 +183,36 @@ class CCardAccess
     }
 
     /**
+     * The cards a deep copy of $cardId must leave out for this user: subcards
+     * they can't see, and cards they can't see that the copied cards wait on.
+     *
+     * @param int $cardId
+     *
+     * @return int[]
+     */
+    public function hiddenForCopy($cardId)
+    {
+        $tree = CCardStore::withDescendants($cardId);
+        $hidden = array();
+        foreach ($tree as $id) {
+            if (!$this->canSeeCard($id)) {
+                $hidden[] = $id;
+            }
+        }
+        $q = new w2p_Database_Query();
+        $q->addTable('card_dependencies');
+        $q->addQuery('DISTINCT dependency_requires');
+        $q->addWhere('dependency_card IN (' . implode(',', $tree) . ')');
+        foreach ($q->loadColumn() as $id) {
+            if (!$this->canSeeCard((int) $id)) {
+                $hidden[] = (int) $id;
+            }
+        }
+
+        return $hidden;
+    }
+
+    /**
      * Whether the user may see this card.
      *
      * @param int $cardId

@@ -262,21 +262,7 @@ switch ($op) {
         // user can't see stay out of the copy.
         $requireRight('add');
         $card = $visibleCard($int('card_id'));
-        $hidden = array();
-        foreach (CCardStore::withDescendants($card['card_id']) as $id) {
-            if (!$access->canSeeCard($id)) {
-                $hidden[] = $id;
-            }
-        }
-        $q = new w2p_Database_Query();
-        $q->addTable('card_dependencies');
-        $q->addQuery('DISTINCT dependency_requires');
-        $q->addWhere('dependency_card IN (' . implode(',', CCardStore::withDescendants($card['card_id'])) . ')');
-        foreach ($q->loadColumn() as $id) {
-            if (!$access->canSeeCard((int) $id)) {
-                $hidden[] = (int) $id;
-            }
-        }
+        $hidden = $access->hiddenForCopy($card['card_id']);
         $copied = $store->copy(
             $card['card_id'],
             isset($in['name']) ? (string) $in['name'] : null,
@@ -293,6 +279,26 @@ switch ($op) {
             'skipped' => $copied['skipped'],
             'key' => CCardStore::key($copy),
         ));
+        break;
+
+    case 'schedule_save':
+        // Repeat a card: copy it on a schedule. The schedule runs as whoever
+        // saved it last, so saving needs the rights a copy needs.
+        $requireRight('add');
+        $requireRight('edit');
+        $card = $visibleCard($int('card_id'));
+        $saved = CCardSchedules::save($card['card_id'], $AppUI->user_id, isset($in['schedule']) && is_array($in['schedule']) ? $in['schedule'] : array());
+        if (is_string($saved)) {
+            CCardJson::error(400, 'invalid', $saved, array('schedule' => $saved));
+        }
+        $respond((int) $card['card_project']);
+        break;
+
+    case 'schedule_remove':
+        $requireRight('edit');
+        $card = $visibleCard($int('card_id'));
+        CCardSchedules::remove($card['card_id'], $AppUI->user_id);
+        $respond((int) $card['card_project']);
         break;
 
     case 'tag_add':

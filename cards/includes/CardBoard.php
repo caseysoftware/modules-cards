@@ -130,6 +130,7 @@ class CCardBoard
             $ids[] = (int) $row['card_id'];
         }
         $tags = CCardTags::forCards($ids);
+        $repeating = CCardSchedules::repeating($ids);
         $waitsOn = $this->waitsOn($ids);
         $closed = CCardStatuses::closedIds();
 
@@ -177,6 +178,8 @@ class CCardBoard
                 'waits_on' => isset($waitsOn[$id]) ? $waitsOn[$id] : array(),
                 'subcards' => count($kids),
                 'subcards_done' => $kidsDone,
+                // null: doesn't repeat; true: repeats; false: its repeat is paused
+                'repeats' => array_key_exists($id, $repeating) ? $repeating[$id] : null,
             );
         }
 
@@ -258,6 +261,8 @@ class CCardBoard
         $card['creator_name'] = CCardStore::userName((int) $row['card_creator']);
 
         $card['subcard_list'] = $this->cardRows('c.card_parent = ' . (int) $cardId);
+        $schedule = CCardSchedules::forCard($cardId);
+        $card['schedule'] = $schedule ? CCardSchedules::describe($schedule, $this->access) : null;
         $closed = CCardStatuses::closedIds();
         $card['subcards'] = count($card['subcard_list']);
         $card['subcards_done'] = 0;

@@ -12,6 +12,7 @@ require_once __DIR__ . '/includes/CardSettings.php';
 require_once __DIR__ . '/includes/CardStore.php';
 require_once __DIR__ . '/includes/CardBoard.php';
 require_once __DIR__ . '/includes/CardMaintenance.php';
+require_once __DIR__ . '/includes/CardSchedules.php';
 require_once __DIR__ . '/includes/CardJson.php';
 require_once __DIR__ . '/includes/CardView.php';
 
@@ -267,10 +268,15 @@ class CCard extends w2p_Core_BaseObject
      */
     public function hook_cron()
     {
+        global $AppUI;
         $maintenance = new CCardMaintenance();
         $counts = $maintenance->sweep();
         if (array_sum($counts)) {
             error_log('Cards sweep: ' . json_encode($counts));
+        }
+        $copies = CCardSchedules::runDue($AppUI);
+        if (array_sum($copies)) {
+            error_log('Cards schedules: ' . json_encode($copies));
         }
     }
 }

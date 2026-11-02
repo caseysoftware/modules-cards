@@ -224,6 +224,38 @@ def main():
         page.keyboard.press('Escape')
         page.wait_for_selector('.w2p-cards-drawer', state='detached')
 
+        print('== repeat')
+        page.click('.w2p-cards-card[data-id="%d"]' % c4)
+        page.wait_for_selector('.w2p-cards-drawer button:has-text("Repeat this card")')
+        page.click('.w2p-cards-drawer button:has-text("Repeat this card")')
+        page.wait_for_selector('.w2p-cards-overlay select[aria-label="Repeat"]')
+        for box in page.locator('.w2p-cards-overlay .w2p-cards-days input').all():
+            box.uncheck()
+        page.check('.w2p-cards-overlay input[aria-label="Mon"]')
+        page.check('.w2p-cards-overlay input[aria-label="Thu"]')
+        page.fill('.w2p-cards-overlay input[aria-label="Name of each copy"]', '{name} (week {week})')
+        page.click('.w2p-cards-overlay button:has-text("Save")')
+        page.wait_for_selector('.w2p-cards-drawer .w2p-cards-repeat-summary:has-text("Every Monday and Thursday")')
+        text = page.locator('.w2p-cards-drawer').inner_text()
+        check('next copy' in text and '(week {week})' in text and 'due dates move with each copy' in text, 'saving a repeat shows it in the drawer')
+        check(page.locator('.w2p-cards-card[data-id="%d"] .w2p-cards-repeats' % c4).count() == 1, 'the card shows it repeats')
+        page.click('.w2p-cards-drawer button:has-text("Change")')
+        page.wait_for_selector('.w2p-cards-overlay select[aria-label="Repeat"]')
+        check(page.is_checked('.w2p-cards-overlay input[aria-label="Thu"]') and not page.is_checked('.w2p-cards-overlay input[aria-label="Tue"]'),
+              'Change opens with the saved days')
+        page.select_option('.w2p-cards-overlay select[aria-label="Repeat"]', 'monthly')
+        check(page.locator('.w2p-cards-overlay .w2p-cards-days').is_visible() is False
+              and page.locator('.w2p-cards-overlay select[aria-label="Day of the month"]').is_visible(), 'switching to monthly shows the day of the month')
+        page.click('.w2p-cards-overlay button:has-text("Cancel")')
+        if shots:
+            page.locator('.w2p-cards-drawer section:has(h3:text("Repeat"))').scroll_into_view_if_needed()
+            page.screenshot(path=os.path.join(shots, '3c-repeat.png'))
+        page.click('.w2p-cards-drawer button:has-text("Stop repeating")')
+        page.wait_for_selector('.w2p-cards-drawer button:has-text("Repeat this card")')
+        check(page.locator('.w2p-cards-card[data-id="%d"] .w2p-cards-repeats' % c4).count() == 0, 'Stop repeating removes it')
+        page.keyboard.press('Escape')
+        page.wait_for_selector('.w2p-cards-drawer', state='detached')
+
         print('== keyboard')
         page.focus('.w2p-cards-card[data-id="%d"]' % c5)
         page.keyboard.press('Enter')

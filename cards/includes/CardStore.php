@@ -533,6 +533,7 @@ class CCardStore
 
         CCardTags::deleteFor($ids);
         CCardActivity::deleteFor($ids);
+        CCardSchedules::deleteFor($ids);
         $q = new w2p_Database_Query();
         $q->setDelete('cards');
         $q->addWhere('card_id IN (' . implode(',', $ids) . ')');
@@ -566,10 +567,11 @@ class CCardStore
      * @param string|null $name   name of the top copy (null: the original's)
      * @param int|null    $status
      * @param int[]       $hidden
+     * @param int         $shiftDays moves every copied due date by this many days
      *
      * @return array{root: int, map: array<int, int>, skipped: int}|false
      */
-    public function copy($cardId, $name = null, $status = null, array $hidden = array())
+    public function copy($cardId, $name = null, $status = null, array $hidden = array(), $shiftDays = 0)
     {
         $card = self::load($cardId);
         if (!$card) {
@@ -655,7 +657,11 @@ class CCardStore
             $q->addInsert('card_owner', (int) $row['card_owner']);
             $q->addInsert('card_task', (int) $row['card_task']);
             if (!empty($row['card_due_date'])) {
-                $q->addInsert('card_due_date', $row['card_due_date']);
+                $due = $row['card_due_date'];
+                if ($shiftDays) {
+                    $due = (new DateTimeImmutable($due))->modify(($shiftDays > 0 ? '+' : '') . (int) $shiftDays . ' day')->format('Y-m-d');
+                }
+                $q->addInsert('card_due_date', $due);
             }
             $q->addInsert('card_rank', $rank);
             $q->addInsert('card_creator', $this->userId);

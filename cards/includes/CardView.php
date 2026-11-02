@@ -7,7 +7,7 @@
  */
 class CCardView
 {
-    const VERSION = '0.3.0';
+    const VERSION = '0.4.0';
 
     /** @var bool */
     protected static $assetsDone = false;
@@ -36,6 +36,11 @@ class CCardView
      */
     public static function mount(w2p_Core_CAppUI $AppUI, array $options)
     {
+        // Scheduled copies normally come from the cron sweep; a board page
+        // load also runs any that are due, for sites without cron.
+        if (CCardSchedules::anyDue()) {
+            CCardSchedules::runDue($AppUI);
+        }
         self::assets();
         $base = rtrim(W2P_BASE_URL, '/') . '/index.php';
         $options = array_merge(array(

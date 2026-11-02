@@ -5,7 +5,7 @@ if (!defined('W2P_BASE_DIR')) {
 
 $config = array();
 $config['mod_name'] = 'Cards';
-$config['mod_version'] = '0.3.0';
+$config['mod_version'] = '0.4.0';
 $config['mod_directory'] = 'cards';
 $config['mod_setup_class'] = 'CSetupCards';
 $config['mod_type'] = 'user';
@@ -41,9 +41,34 @@ class CSetupCards extends w2p_System_Setup
      * @var string[]
      */
     protected $tables = array(
-        'card_tag_links', 'card_tags', 'card_activity', 'card_dependencies',
+        'card_schedules', 'card_tag_links', 'card_tags', 'card_activity', 'card_dependencies',
         'card_settings', 'cards', 'card_statuses',
     );
+
+    /**
+     * Scheduled copies (0.4.0): one schedule per repeating card.
+     */
+    const SCHEDULES_TABLE = '(
+                schedule_id int(11) NOT NULL AUTO_INCREMENT,
+                schedule_card int(11) NOT NULL,
+                schedule_user int(11) NOT NULL,
+                schedule_rule varchar(16) NOT NULL,
+                schedule_days varchar(32) NOT NULL,
+                schedule_name varchar(255) NOT NULL DEFAULT "",
+                schedule_status int(11) NOT NULL DEFAULT 0,
+                schedule_shift tinyint(1) NOT NULL DEFAULT 1,
+                schedule_skip_open tinyint(1) NOT NULL DEFAULT 0,
+                schedule_anchor date NOT NULL,
+                schedule_next date NOT NULL,
+                schedule_last_run datetime DEFAULT NULL,
+                schedule_last_copy int(11) NOT NULL DEFAULT 0,
+                schedule_active tinyint(1) NOT NULL DEFAULT 1,
+                schedule_note varchar(255) NOT NULL DEFAULT "",
+                schedule_updated datetime NOT NULL,
+                PRIMARY KEY (schedule_id),
+                UNIQUE KEY idx_schedule_card (schedule_card),
+                KEY idx_schedule_due (schedule_active, schedule_next)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8';
 
     public function install()
     {
@@ -120,6 +145,7 @@ class CSetupCards extends w2p_System_Setup
                 settings_json text NOT NULL,
                 PRIMARY KEY (settings_project)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8',
+            'card_schedules' => self::SCHEDULES_TABLE,
         );
 
         foreach ($definitions as $table => $definition) {
@@ -166,6 +192,16 @@ class CSetupCards extends w2p_System_Setup
             // 0.2.0 declares cards as permission items (Smart Search, History);
             // System Admin stores the new settings, this adds the section.
             $this->_perms->addModuleSection('cards');
+        }
+        if (version_compare($old_version, '0.4.0', '<')) {
+            // 0.4.0 adds scheduled copies.
+            $q = $this->_getQuery();
+            $q->createTable('card_schedules');
+            $q->createDefinition(self::SCHEDULES_TABLE);
+            if (!$q->exec()) {
+                $this->_errors['card_schedules'] = 'Could not create table card_schedules';
+                return false;
+            }
         }
 
         return true;
