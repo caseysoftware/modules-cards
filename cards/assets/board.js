@@ -1385,7 +1385,7 @@
         rule.addEventListener('change', showRule);
         showRule();
 
-        this.dialog((card.schedule ? 'Change the repeat of ' : 'Repeat ') + card.key, [
+        this.dialog('Repeat ' + card.name, [
             el('p', { text: 'On each date this card is copied with its subcards, tags and dependencies, like Copy card. Copies are made when the day comes, not at a set time.' }),
             el('label', { className: 'w2p-cards-field' }, ['Repeat', rule]),
             weekly, monthly, everyN,

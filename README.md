@@ -312,6 +312,8 @@ W2P_DIR=/path/to/web2project python3 tests/sweep_test.py   # run last: it moves 
 Copy the new `cards/` folder over the installed one (or `git pull` a
 linked install), then **System Admin → View Modules → upgrade** on Cards.
 
+- 0.4.2 (repeat dialog title, calendar feed titles without the card key)
+  has no database changes.
 - 0.4.1 (Move to another project) has no database changes; the upgrade
   only records the new version.
 - 0.4.0 adds the `card_schedules` table for repeating cards. (The status

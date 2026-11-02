@@ -157,6 +157,8 @@ def main():
     sql("insert into user_feeds (feed_user, feed_token) values (1, '%s')" % token)
     ical = admin.s.get(BASE + '/calendar.php?token=%s' % token).text
     check('UID:cards_%d' % home in ical and 'Seal the deck %s' % tag in ical, 'feed has the user\'s card due today')
+    event = ical.split('UID:cards_%d' % home)[1].split('END:VEVENT')[0]
+    check('\r\nSUMMARY:Seal the deck %s\r\n' % tag in event, 'its title is just the card name, without the project key')
     check('UID:cards_%d' % shed not in ical, 'feed leaves out cards owned by someone else')
     month = admin.s.get(INDEX + '?m=events').text
     check('m=cards&card=%d"' % home in month and 'Seal the deck %s' % tag in month, 'month view shows the card on its due date')

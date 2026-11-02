@@ -276,6 +276,7 @@ def main():
         page.wait_for_selector('.w2p-cards-drawer button:has-text("Repeat this card")')
         page.click('.w2p-cards-drawer button:has-text("Repeat this card")')
         page.wait_for_selector('.w2p-cards-overlay select[aria-label="Repeat"]')
+        check(page.locator('.w2p-cards-dialog h3').inner_text() == 'Repeat Moisture test on slab', 'the repeat dialog is headed Repeat and the card name')
         for box in page.locator('.w2p-cards-overlay .w2p-cards-days input').all():
             box.uncheck()
         page.check('.w2p-cards-overlay input[aria-label="Mon"]')

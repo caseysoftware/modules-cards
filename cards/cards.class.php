@@ -199,11 +199,11 @@ class CCard extends w2p_Core_BaseObject
         $items = array();
         foreach ($this->dueCards($userId, '', date('Y-m-d', strtotime('+30 days'))) as $row) {
             $due = substr($row['card_due_date'], 0, 10);
-            $key = CCardStore::key($row);
             $items[] = array(
                 'id' => (int) $row['card_id'],
                 'UID' => 'cards_' . (int) $row['card_id'],
-                'name' => 'Due: ' . $key . ' ' . html_entity_decode((string) $row['card_name'], ENT_QUOTES, 'UTF-8'),
+                // The title is just the card's name; the project is in the description.
+                'name' => html_entity_decode((string) $row['card_name'], ENT_QUOTES, 'UTF-8'),
                 'description' => (string) $row['card_description'],
                 'startDate' => $due . ' 00:00:00',
                 'endDate' => $due . ' 23:59:59',
