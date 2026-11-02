@@ -454,6 +454,7 @@ def main():
         page.goto(BASE + '/index.php?m=events')
         link = page.locator('a[href="?m=cards&card=%d"]' % c4)
         check(link.count() == 1, 'the card shows on the month view on its due date')
+        check(link.inner_text().strip() == 'Moisture test on slab', 'with just its name (%s)' % link.inner_text().strip())
         link.click()
         page.wait_for_selector('.w2p-cards-drawer')
         page.wait_for_selector('.w2p-cards-drawer input[aria-label="Card name"]')

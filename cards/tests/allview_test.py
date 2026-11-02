@@ -162,6 +162,9 @@ def main():
     check('UID:cards_%d' % shed not in ical, 'feed leaves out cards owned by someone else')
     month = admin.s.get(INDEX + '?m=events').text
     check('m=cards&card=%d"' % home in month and 'Seal the deck %s' % tag in month, 'month view shows the card on its due date')
+    entry = month.split('m=cards&card=%d"' % home)[1].split('</a>')[0]
+    check('>Seal the deck %s</span>' % tag in entry and 'CedarLane-' not in entry and 'Card due: Seal the deck %s"' % tag in entry,
+          'the entry and its tooltip show just the card name, without the key')
     check('Pour shed pad %s' % tag not in month, 'only the user\'s own cards')
     page = worker.s.get(INDEX + '?m=events').text
     check('Pour shed pad %s' % tag in page and 'Seal the deck %s' % tag not in page, 'each user sees their own cards on the calendar')

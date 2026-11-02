@@ -235,7 +235,6 @@ class CCard extends w2p_Core_BaseObject
             $items[] = array(
                 'startDate' => str_replace('-', '', substr($row['card_due_date'], 0, 10)),
                 'id' => (int) $row['card_id'],
-                'key' => CCardStore::key($row),
                 'name' => html_entity_decode((string) $row['card_name'], ENT_QUOTES, 'UTF-8'),
             );
         }
@@ -254,7 +253,8 @@ class CCard extends w2p_Core_BaseObject
      */
     public function getCalendarLink($notUsed, $item)
     {
-        $label = $item['key'] . ' ' . $item['name'];
+        // Just the card's name, as in the calendar feed.
+        $label = $item['name'];
 
         return array(
             'href' => '?m=cards&card=' . (int) $item['id'],
