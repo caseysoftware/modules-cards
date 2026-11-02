@@ -25,12 +25,27 @@ if (isset($_GET['cards_subtasks'])) {
     $AppUI->setState('CardsTaskSubtasks', (int) w2PgetParam($_GET, 'cards_subtasks', 1));
 }
 $withSubtasks = (bool) $AppUI->getState('CardsTaskSubtasks', 1);
+// Show all cards, the open ones, or the closed ones (Done and the like).
+if (isset($_GET['cards_show'])) {
+    $AppUI->setState('CardsTaskShow', w2PgetParam($_GET, 'cards_show', 'all'));
+}
+$show = $AppUI->getState('CardsTaskShow', 'all');
+if (!in_array($show, array('all', 'open', 'closed'), true)) {
+    $show = 'all';
+}
 
 $board = new CCardBoard($AppUI, $access);
 $cards = $board->taskCards($task_id, $withSubtasks);
 $statuses = array();
 foreach (CCardStatuses::all() as $status) {
     $statuses[$status['id']] = $status;
+}
+$total = count($cards);
+if ('all' !== $show) {
+    $cards = array_values(array_filter($cards, function ($card) use ($statuses, $show) {
+        $closed = isset($statuses[$card['status']]) && CCardStatuses::CLOSED == $statuses[$card['status']]['category'];
+        return ('closed' === $show) ? $closed : !$closed;
+    }));
 }
 $users = array();
 foreach ($board->users() as $user) {
@@ -46,13 +61,21 @@ $here = '?m=tasks&a=view&task_id=' . $task_id;
                 onchange="window.location = '<?php echo $here; ?>&cards_subtasks=' + (this.checked ? 1 : 0);" />
             <?php echo CCardView::e($AppUI->_('Include cards on sub-tasks', UI_OUTPUT_RAW)); ?>
         </label>
+        <label>
+            <?php echo CCardView::e($AppUI->_('Show', UI_OUTPUT_RAW)); ?>
+            <select onchange="window.location = '<?php echo $here; ?>&cards_show=' + this.value;" aria-label="<?php echo CCardView::e($AppUI->_('Show', UI_OUTPUT_RAW)); ?>">
+                <?php foreach (array('all' => 'All cards', 'open' => 'Open cards', 'closed' => 'Closed cards (like Done)') as $value => $label) { ?>
+                    <option value="<?php echo $value; ?>"<?php echo $show === $value ? ' selected="selected"' : ''; ?>><?php echo CCardView::e($AppUI->_($label, UI_OUTPUT_RAW)); ?></option>
+                <?php } ?>
+            </select>
+        </label>
         <a href="?m=cards&amp;project_id=<?php echo $projectId; ?>"><?php echo CCardView::e($AppUI->_('Open the project board', UI_OUTPUT_RAW)); ?></a>
         <?php if ($access->can('add')) { ?>
             <a class="button" href="?m=cards&amp;project_id=<?php echo $projectId; ?>&amp;new_card_task=<?php echo $task_id; ?>"><?php echo CCardView::e($AppUI->_('New card for this task', UI_OUTPUT_RAW)); ?></a>
         <?php } ?>
     </div>
     <?php if (!$cards) { ?>
-        <p class="w2p-cards-none"><?php echo CCardView::e($AppUI->_('No cards yet.', UI_OUTPUT_RAW)); ?></p>
+        <p class="w2p-cards-none"><?php echo CCardView::e($AppUI->_($total ? ('open' === $show ? 'No open cards.' : 'No closed cards.') : 'No cards yet.', UI_OUTPUT_RAW)); ?></p>
     <?php } else { ?>
     <table class="tbl list w2p-cards-tasktable">
         <thead>

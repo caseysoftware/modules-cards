@@ -114,6 +114,11 @@
         this.data = null;
         this.group = 'status';
         this.filters = { owner: '', tag: '', q: '', subcards: true };
+        // Statuses this viewer has hidden on this board ({ statusId: true }),
+        // e.g. Done to see what's left, or everything but Done to see what's finished.
+        this.hiddenStatuses = {};
+        this.statusKey = 'w2p-cards-statuses-' + (this.isAll ? 'all' : options.projectId);
+        this.statusMenuOpen = false;
         this.openCardId = 0;
         this.cardData = null;
         this.sortables = [];
@@ -127,6 +132,10 @@
                 this.group = 'status';
             }
             if (typeof saved.subcards === 'boolean') { this.filters.subcards = saved.subcards; }
+            var hidden = JSON.parse(window.localStorage.getItem(this.statusKey) || '[]');
+            if (Array.isArray(hidden)) {
+                hidden.forEach(function (id) { this.hiddenStatuses[id] = true; }, this);
+            }
         } catch (e) { /* storage unavailable: use the defaults */ }
 
         this.toastBox = el('div', { className: 'w2p-cards-toasts', role: 'status', 'aria-live': 'polite' });
@@ -147,6 +156,11 @@
             root.textContent = err.message;
         });
     }
+
+    Board.prototype.saveStatuses = function () {
+        var ids = Object.keys(this.hiddenStatuses).filter(function (id) { return this.hiddenStatuses[id]; }, this).map(Number);
+        try { window.localStorage.setItem(this.statusKey, JSON.stringify(ids)); } catch (e) { /* ignore */ }
+    };
 
     Board.prototype.saveView = function () {
         try {
@@ -246,9 +260,13 @@
         this.root.appendChild(this.renderToolbar());
 
         var lanes = el('div', { className: 'w2p-cards-columns' });
-        this.columns().forEach(function (column) {
+        var columns = this.columns();
+        columns.forEach(function (column) {
             lanes.appendChild(self.renderColumn(column));
         });
+        if (!columns.length && this.group === 'status') {
+            lanes.appendChild(el('p', { className: 'w2p-cards-none', text: 'Every status is hidden. Pick some under Status.' }));
+        }
         this.root.appendChild(lanes);
     };
 
@@ -266,6 +284,7 @@
             option('tag', 'Tag', this.group === 'tag')
         ]);
         bar.appendChild(el('label', {}, ['Group by ', groupSelect]));
+        bar.appendChild(this.renderStatusMenu());
 
         if (!this.compact) {
             var ownerSelect = el('select', {
@@ -323,6 +342,55 @@
         return bar;
     };
 
+    /**
+     * "Status: All" menu: tick the statuses to show. Shortcuts for open cards
+     * (hide the closed statuses, like Done) and closed cards (only those).
+     * Remembered per board in this browser.
+     */
+    Board.prototype.renderStatusMenu = function () {
+        var self = this;
+        var statuses = this.data.statuses;
+        var hidden = this.hiddenStatuses;
+        var setHidden = function (test) {
+            self.hiddenStatuses = {};
+            statuses.forEach(function (s) { if (test(s)) { self.hiddenStatuses[s.id] = true; } });
+            self.saveStatuses();
+            self.render();
+        };
+        var shownCount = statuses.filter(function (s) { return !hidden[s.id]; }).length;
+        var closed = statuses.filter(function (s) { return s.category === 2; });
+        var onlyClosed = closed.length && statuses.every(function (s) { return (s.category === 2) === !hidden[s.id]; });
+        var onlyOpen = closed.length && statuses.every(function (s) { return (s.category === 2) === !!hidden[s.id]; });
+        var summary = shownCount === statuses.length ? 'All'
+            : (onlyOpen ? 'Open' : (onlyClosed ? 'Closed' : shownCount + ' of ' + statuses.length));
+
+        var menu = el('details', { className: 'w2p-cards-menu' + (shownCount < statuses.length ? ' is-active' : '') });
+        menu.open = this.statusMenuOpen;
+        menu.addEventListener('toggle', function () { self.statusMenuOpen = menu.open; });
+        menu.appendChild(el('summary', { 'aria-label': 'Statuses shown: ' + summary }, ['Status: ', el('strong', { text: summary })]));
+        var panel = el('div', { className: 'w2p-cards-menu-panel' });
+        panel.appendChild(el('div', { className: 'w2p-cards-menu-quick' }, [
+            el('button', { type: 'button', className: 'w2p-cards-link', text: 'All', onClick: function () { setHidden(function () { return false; }); } }),
+            el('button', { type: 'button', className: 'w2p-cards-link', text: 'Open', title: 'Hide closed statuses, like Done', onClick: function () { setHidden(function (s) { return s.category === 2; }); } }),
+            el('button', { type: 'button', className: 'w2p-cards-link', text: 'Closed', title: 'Only closed statuses, like Done', onClick: function () { setHidden(function (s) { return s.category !== 2; }); } })
+        ]));
+        statuses.forEach(function (s) {
+            panel.appendChild(el('label', { className: 'w2p-cards-check' }, [
+                el('input', {
+                    type: 'checkbox', checked: !hidden[s.id], 'data-status': String(s.id),
+                    onChange: function () {
+                        if (this.checked) { delete self.hiddenStatuses[s.id]; } else { self.hiddenStatuses[s.id] = true; }
+                        self.saveStatuses();
+                        self.render();
+                    }
+                }),
+                ' ' + s.name
+            ]));
+        });
+        menu.appendChild(panel);
+        return menu;
+    };
+
     /** The columns for the current grouping. */
     Board.prototype.columns = function () {
         var self = this;
@@ -365,7 +433,7 @@
             default:
                 return data.statuses.filter(function (s) {
                     var col = data.settings.columns[s.id];
-                    return !col || col.shown;
+                    return (!col || col.shown) && !self.hiddenStatuses[s.id];
                 }).map(function (s) {
                     var col = data.settings.columns[s.id] || {};
                     // WIP limits belong to one team's board; the all-projects view shows none.
@@ -377,6 +445,7 @@
     Board.prototype.matchesFilters = function (card) {
         var f = this.filters;
         if (!f.subcards && card.parent) { return false; }
+        if (this.hiddenStatuses[card.status]) { return false; }
         if (f.owner !== '' && String(card.owner) !== f.owner) { return false; }
         if (f.tag !== '' && card.tags.indexOf(parseInt(f.tag, 10)) === -1) { return false; }
         if (f.q) {
@@ -799,6 +868,8 @@
         if (e.key !== 'Escape') { return; }
         if (this.activeDialog) {
             this.activeDialog.close(null);
+        } else if (this.statusMenuOpen) {
+            this.closeStatusMenu();
         } else if (this.drawer && !e.defaultPrevented) {
             this.closeDrawer();
         }
@@ -814,7 +885,17 @@
         this.pressedOutside = this.isOutside(e.target);
     };
 
+    Board.prototype.closeStatusMenu = function () {
+        var menu = this.root.querySelector('.w2p-cards-menu[open]');
+        this.statusMenuOpen = false;
+        if (menu) { menu.open = false; }
+    };
+
     Board.prototype.onOutsideClick = function (e) {
+        // The status menu closes on a click anywhere outside it.
+        if (this.statusMenuOpen && !(e.target.closest && e.target.closest('.w2p-cards-menu'))) {
+            this.closeStatusMenu();
+        }
         if (!this.drawer || this.activeDialog || !this.pressedOutside || !this.isOutside(e.target)) { return; }
         if (e.target.closest && e.target.closest('.w2p-cards-card')) { return; }
         this.closeDrawer();

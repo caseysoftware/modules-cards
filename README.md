@@ -9,6 +9,11 @@ attached to a project and optionally to one of its tasks.
 - **Group by** status, priority, owner, tag, and linked task (project board)
   or project (all projects board). Dropping a card in another column sets
   that field.
+- **Status filter**: the toolbar's **Status** menu picks which statuses you
+  see, in any grouping. **Open** hides the closed statuses (like Done) to
+  show what's left; **Closed** shows only those, to see what's finished.
+  Each board remembers your choice in your browser. The task view's Cards
+  tab has the same choice under **Show**.
 - **Card drawer**: name, status, priority, owner, due date, linked task,
   tags, description, subcards, dependencies, and the card's activity log
   with comments. Type several tags at once, separated by commas

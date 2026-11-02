@@ -32,6 +32,24 @@
 .w2p-cards-spacer { flex: 1 1 auto; }
 .w2p-cards-check { color: var(--cards-ink) !important; }
 
+/* Status menu: which statuses this viewer sees */
+.w2p-cards-menu { position: relative; }
+.w2p-cards-menu > summary {
+    list-style: none; cursor: pointer; padding: 5px 10px; border: 1px solid var(--cards-line); border-radius: 6px;
+    background: #fff; color: var(--cards-muted); min-height: 32px; display: inline-flex; align-items: center; gap: 4px;
+}
+.w2p-cards-menu > summary::-webkit-details-marker { display: none; }
+.w2p-cards-menu > summary::after { content: "\25BE"; margin-left: 4px; }
+.w2p-cards-menu > summary strong { color: var(--cards-ink); font-weight: 600; }
+.w2p-cards-menu.is-active > summary { border-color: var(--cards-accent); background: var(--cards-accent-soft); }
+.w2p-cards-menu.is-active > summary strong { color: var(--cards-accent-ink); }
+.w2p-cards-menu-panel {
+    position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 200px; padding: 10px 12px;
+    background: #fff; border: 1px solid var(--cards-line); border-radius: 8px; box-shadow: 0 8px 24px rgba(31, 35, 40, .12);
+    display: flex; flex-direction: column; gap: 6px;
+}
+.w2p-cards-menu-quick { display: flex; gap: 10px; padding-bottom: 6px; margin-bottom: 2px; border-bottom: 1px solid var(--cards-line); }
+
 .w2p-cards-button {
     font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--cards-line); border-radius: 6px;
     background: #fff; color: var(--cards-ink); cursor: pointer; min-height: 32px;
