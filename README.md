@@ -23,6 +23,10 @@ attached to a project and optionally to one of its tasks.
   detection.
 - **Copy a card** (the drawer's **Copy card…**): a deep copy of the card,
   all its subcards and their dependencies. See [Copying cards](#copying-cards).
+- **Move to another project** (the drawer's **Move to…**, next to the
+  project): moves the card with its subcards and, if you choose, the cards
+  connected to it by dependencies. See
+  [Moving a card to another project](#moving-a-card-to-another-project).
 - **Repeating cards**: copy a card on a schedule, such as every Monday or
   on the 1st of each month. See [Repeating cards](#repeating-cards).
 - **Soft WIP limits** per board: a column header turns amber at its limit
@@ -112,8 +116,8 @@ user can't see.
   limits: those belong to one team's board.
 - **Card keys** look like `CedarLane-42`: the project's short name and the
   card's id. They are display only; everything links by id, so a key keeps
-  working after the project's short name changes or the card follows its
-  task to another project (the number never changes).
+  working after the project's short name changes or the card moves to
+  another project (the number never changes).
 
 ## Copying cards
 
@@ -188,13 +192,35 @@ cards, and then shows in the picker marked "(inactive)".
 
 ### Moving a card to another project
 
-Cards don't move between projects on their own. A card changes project only
-with its linked task: link the card to a task, then move that task to the
-other project in its task form (web2project moves its sub-tasks too). The
-card, its subcards and the cards on those sub-tasks follow, and keep their
-ids, so links to them keep working. Any dependency or subcard link that would
-then cross projects is removed and logged. Otherwise, create a new card in
-the other project.
+Cards can't be dragged between projects. Instead, open the card and use
+**Move to…** next to its project:
+
+1. Pick another **active** project you can see. The dialog lists every card
+   that will move: the card and all its subcards and, when the card has
+   any, the cards connected to them by dependencies (in either direction,
+   through any number of links, each with its subcards). That last part is
+   on by default; untick it to move only the card and its subcards.
+2. **Continue…** shows what the move breaks and asks you to confirm:
+   - **Task links are removed** from every card that moves, because tasks
+     belong to the old project. The list names each card and its task.
+   - Dependencies between a card that moves and one that stays are removed.
+   - A moved card whose parent card stays becomes a top-level card.
+
+The cards keep their ids, comments, tags, activity and repeats, and their
+order, at the end of the new project's board. Keys take the new project's
+short name (`CedarLane-42` becomes `Shed-42`). Every change is logged on
+the cards involved, on both sides of a removed link, and the move shows in
+the project's History.
+
+Moving needs the Cards **add** and **edit** rights. If any card that would
+move is on a task you can't see, the move is refused: clearing its task
+would show it to everyone in the new project. A move can take at most 500
+cards. If the cards that would move change between the dialog and the
+confirmation (someone adds a dependency, say), nothing moves and you're
+asked to look again.
+
+A card also changes project with its linked task: when a task moves to
+another project in its task form, its cards follow (see below).
 
 ## Consistency with tasks and projects (modules-cards #3)
 
@@ -205,8 +231,8 @@ the other project.
   too) → the cards on those tasks move with them, with their subcards. Any
   subcard link or dependency that would now cross projects is removed and
   logged on both cards. Each move is logged.
-- Cards can't otherwise change project, and relationships only connect
-  cards in the same project.
+- Otherwise, cards change project only through **Move to…**, and
+  relationships only connect cards in the same project.
 
 These run in the cron sweep (`CCard::hook_cron`, from `queuescanner.php`).
 Until the sweep runs, the board already shows the right thing ("validate
@@ -234,8 +260,8 @@ includes/                 CardStore (writes), CardBoard (reads), CardAccess
                           CardJson, CardView
 assets/                   board.js, board.css, vendor/Sortable.min.js
 tests/                    rank_test.php, schedule_test.php, api_test.py,
-                          allview_test.py, ui_test.py, schedule_run_test.py,
-                          sweep_test.py
+                          allview_test.py, move_test.py, ui_test.py,
+                          schedule_run_test.py, sweep_test.py
 ```
 
 The board is plain JavaScript (no build step) plus SortableJS. It posts to
@@ -260,6 +286,7 @@ php tests/rank_test.php
 php tests/schedule_test.php
 python3 tests/api_test.py
 W2P_DIR=/path/to/web2project python3 tests/allview_test.py   # after api_test.py
+W2P_DIR=/path/to/web2project python3 tests/move_test.py
 python3 tests/ui_test.py --shots /tmp/shots
 W2P_DIR=/path/to/web2project python3 tests/schedule_run_test.py
 W2P_DIR=/path/to/web2project python3 tests/sweep_test.py   # run last: it moves and deletes demo tasks
@@ -285,6 +312,8 @@ W2P_DIR=/path/to/web2project python3 tests/sweep_test.py   # run last: it moves 
 Copy the new `cards/` folder over the installed one (or `git pull` a
 linked install), then **System Admin → View Modules → upgrade** on Cards.
 
+- 0.4.1 (Move to another project) has no database changes; the upgrade
+  only records the new version.
 - 0.4.0 adds the `card_schedules` table for repeating cards. (The status
   filter in the same release has no database changes.)
 - 0.3.0 (comma-separated tags, closing the drawer by clicking outside it,

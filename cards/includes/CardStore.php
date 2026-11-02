@@ -926,6 +926,266 @@ class CCardStore
         return true;
     }
 
+    // ------------------------------------------------ moving between projects
+
+    /** Most cards one move to another project may take. */
+    const MAX_MOVE = 500;
+
+    /**
+     * What a move of $cardId to another project takes along and what it
+     * breaks. Always the card and all its subcards; with $withRelated also
+     * every card connected to those by dependencies (in either direction,
+     * through any number of links), each with its own subcards.
+     *
+     * - cards: everything that moves, the card first
+     * - related: the cards that come only because of dependencies
+     * - cut: dependencies between a moving card and one that stays
+     * - detached: moving cards whose parent card stays behind; they become
+     *   top-level cards in the new project
+     * - tasks: moving cards linked to a task (the link is removed)
+     *
+     * @param int  $cardId
+     * @param bool $withRelated
+     *
+     * @return array{cards: int[], related: int[], cut: array<int, int[]>, detached: int[], tasks: int[], too_many: bool}
+     */
+    public static function moveSet($cardId, $withRelated)
+    {
+        $card = self::load($cardId);
+        $projectId = $card ? (int) $card['card_project'] : 0;
+        $set = self::withDescendants($cardId);
+        $inSet = array_flip($set);
+        $related = array();
+        $tooMany = false;
+
+        while ($withRelated) {
+            $list = implode(',', $set);
+            $q = new w2p_Database_Query();
+            $q->addTable('card_dependencies', 'd');
+            $q->innerJoin('cards', 'a', 'a.card_id = d.dependency_card');
+            $q->innerJoin('cards', 'b', 'b.card_id = d.dependency_requires');
+            $q->addQuery('a.card_id AS a_id, b.card_id AS b_id');
+            $q->addWhere('(a.card_id IN (' . $list . ') OR b.card_id IN (' . $list . '))');
+            // Links into other projects shouldn't exist; they're cut, not followed.
+            $q->addWhere('a.card_project = ' . $projectId . ' AND b.card_project = ' . $projectId);
+            $found = array();
+            foreach ($q->loadList() as $row) {
+                foreach (array((int) $row['a_id'], (int) $row['b_id']) as $id) {
+                    if (!isset($inSet[$id])) {
+                        $found[$id] = true;
+                    }
+                }
+            }
+            if (!$found) {
+                break;
+            }
+            foreach (array_keys($found) as $id) {
+                if (isset($inSet[$id])) {
+                    continue; // came in as a subcard of another found card
+                }
+                foreach (self::withDescendants($id) as $sub) {
+                    if (!isset($inSet[$sub])) {
+                        $inSet[$sub] = true;
+                        $set[] = $sub;
+                        $related[] = $sub;
+                    }
+                }
+            }
+            if (count($set) > self::MAX_MOVE) {
+                $tooMany = true;
+                break;
+            }
+        }
+
+        $list = implode(',', $set);
+        $cut = array();
+        $q = new w2p_Database_Query();
+        $q->addTable('card_dependencies');
+        $q->addQuery('dependency_card, dependency_requires');
+        $q->addWhere('dependency_card IN (' . $list . ') OR dependency_requires IN (' . $list . ')');
+        foreach ($q->loadList() as $row) {
+            $a = (int) $row['dependency_card'];
+            $b = (int) $row['dependency_requires'];
+            if (isset($inSet[$a]) !== isset($inSet[$b])) {
+                $cut[] = array($a, $b);
+            }
+        }
+
+        $detached = array();
+        $tasks = array();
+        $q = new w2p_Database_Query();
+        $q->addTable('cards');
+        $q->addQuery('card_id, card_parent, card_task');
+        $q->addWhere('card_id IN (' . $list . ')');
+        foreach ($q->loadList() as $row) {
+            if ((int) $row['card_parent'] && !isset($inSet[(int) $row['card_parent']])) {
+                $detached[] = (int) $row['card_id'];
+            }
+            if ((int) $row['card_task']) {
+                $tasks[] = (int) $row['card_id'];
+            }
+        }
+
+        return array('cards' => $set, 'related' => $related, 'cut' => $cut, 'detached' => $detached, 'tasks' => $tasks, 'too_many' => $tooMany);
+    }
+
+    /**
+     * Moves a card to another project with everything moveSet() names. The
+     * card goes to the end of the new project's order with the others right
+     * after it in their old order. Every moved card loses its task link
+     * (tasks belong to the old project), and dependencies and parent links
+     * to cards that stay behind are removed. All of it is logged on the
+     * cards involved.
+     *
+     * Fails with "conflict" when the card changed since the caller read it
+     * ($version), or when the cards that would move are no longer the ones
+     * the user confirmed ($expected).
+     *
+     * @param int        $cardId
+     * @param int|null   $version
+     * @param int        $projectId
+     * @param bool       $withRelated
+     * @param int[]|null $expected
+     *
+     * @return int[]|false the moved card ids, the card first
+     */
+    public function moveToProject($cardId, $version, $projectId, $withRelated, $expected = null)
+    {
+        $this->errors = array();
+        $card = self::load($cardId);
+        if (!$card) {
+            return $this->fail('card', 'The card no longer exists.');
+        }
+        $projectId = (int) $projectId;
+        $oldProject = (int) $card['card_project'];
+        if ($projectId === $oldProject) {
+            return $this->fail('project', 'The card is already in that project.');
+        }
+        $q = new w2p_Database_Query();
+        $q->addTable('projects');
+        $q->addQuery('COUNT(*)');
+        $q->addWhere('project_id = ' . $projectId);
+        if (!(int) $q->loadResult()) {
+            return $this->fail('project', 'That project no longer exists.');
+        }
+        $newName = self::projectName($projectId);
+        if (null !== $version && (int) $card['card_version'] !== (int) $version) {
+            return $this->fail('conflict', 'Someone else changed this card. The board has been refreshed.');
+        }
+
+        $plan = self::moveSet($cardId, $withRelated);
+        if ($plan['too_many']) {
+            return $this->fail('move', 'A move can take at most ' . self::MAX_MOVE . ' cards.');
+        }
+        if (null !== $expected) {
+            $a = array_values(array_map('intval', $expected));
+            $b = $plan['cards'];
+            sort($a);
+            sort($b);
+            if ($a !== $b) {
+                return $this->fail('conflict', 'The cards that would move with this one have changed. Check the list and try again.');
+            }
+        }
+        $detached = array_flip($plan['detached']);
+
+        $q = new w2p_Database_Query();
+        $q->addTable('cards');
+        $q->addQuery('*');
+        $q->addWhere('card_id IN (' . implode(',', $plan['cards']) . ')');
+        $q->addOrder('card_rank, card_id');
+        $rows = $q->loadList();
+        // The card first, the others after it in their order (usort is stable).
+        usort($rows, function ($a, $b) use ($cardId) {
+            return ((int) $b['card_id'] === (int) $cardId) - ((int) $a['card_id'] === (int) $cardId);
+        });
+
+        // Labels as they read before the move (keys carry the project).
+        $oldLabels = array();
+        foreach ($rows as $row) {
+            $oldLabels[(int) $row['card_id']] = self::label($row);
+        }
+
+        // Dependencies on cards that stay behind.
+        foreach ($plan['cut'] as $pair) {
+            list($from, $to) = $pair;
+            $d = new w2p_Database_Query();
+            $d->setDelete('card_dependencies');
+            $d->addWhere('dependency_card = ' . (int) $from . ' AND dependency_requires = ' . (int) $to);
+            $d->exec();
+            $fromLabel = isset($oldLabels[$from]) ? $oldLabels[$from] : self::label(self::load($from));
+            $toLabel = isset($oldLabels[$to]) ? $oldLabels[$to] : self::label(self::load($to));
+            CCardActivity::log($from, $this->userId, CCardActivity::DEPENDENCY_REMOVED, 'waits_on', $toLabel, 'moved to another project', $to);
+            CCardActivity::log($to, $this->userId, CCardActivity::DEPENDENCY_REMOVED, 'blocks', $fromLabel, 'moved to another project', $from);
+        }
+
+        $rank = null;
+        $longest = 0;
+        $now = (new w2p_Database_Query())->dbfnNowWithTZ();
+        foreach ($rows as $row) {
+            $id = (int) $row['card_id'];
+            $rank = (null === $rank) ? $this->rankAtEnd($projectId) : CCardRank::between($rank, null);
+            $longest = max($longest, strlen($rank));
+            $u = new w2p_Database_Query();
+            $u->addTable('cards');
+            $u->addUpdate('card_project', $projectId);
+            $u->addUpdate('card_task', 0);
+            if (isset($detached[$id])) {
+                $u->addUpdate('card_parent', 0);
+            }
+            $u->addUpdate('card_rank', $rank);
+            $u->addUpdate('card_updator', $this->userId);
+            $u->addUpdate('card_updated', $now);
+            $u->addUpdate('card_version', 'card_version + 1', false, true);
+            $u->addWhere('card_id = ' . $id);
+            if (!$u->exec()) {
+                return $this->fail('store', 'The move stopped partway. Check both boards.');
+            }
+        }
+
+        $oldName = self::projectName($oldProject);
+        $rootKey = self::key(self::load($cardId));
+        foreach ($rows as $row) {
+            $id = (int) $row['card_id'];
+            $moved = $row;
+            $moved['card_project'] = $projectId;
+            $via = ($id === (int) $cardId) ? '' : ' with ' . $rootKey;
+            CCardActivity::log($id, $this->userId, CCardActivity::MOVED_PROJECT, 'project',
+                $oldName . ' (' . self::key($row) . ')', $newName . ' (' . self::key($moved) . ')' . $via);
+            if ((int) $row['card_task']) {
+                CCardActivity::log($id, $this->userId, CCardActivity::CHANGED, 'task', self::taskLabel((int) $row['card_task']), '');
+            }
+            if (isset($detached[$id])) {
+                $parent = self::load((int) $row['card_parent']);
+                CCardActivity::log($id, $this->userId, CCardActivity::CHANGED, 'parent', $parent ? self::label($parent) : '', '');
+                if ($parent) {
+                    CCardActivity::log($parent['card_id'], $this->userId, CCardActivity::SUBCARD_REMOVED, '', $oldLabels[$id], 'moved to ' . $newName, $id);
+                }
+            }
+        }
+        addHistory('cards', (int) $cardId, 'update', $card['card_name'] . ' (moved from ' . $oldName . ')', $projectId);
+
+        if ($longest > self::RANK_REBALANCE_LENGTH) {
+            $this->rebalance($projectId);
+        }
+
+        return array_map(function ($row) { return (int) $row['card_id']; }, $rows);
+    }
+
+    /**
+     * @param int $projectId
+     *
+     * @return string
+     */
+    public static function projectName($projectId)
+    {
+        $q = new w2p_Database_Query();
+        $q->addTable('projects');
+        $q->addQuery('project_name');
+        $q->addWhere('project_id = ' . (int) $projectId);
+
+        return html_entity_decode((string) $q->loadResult(), ENT_QUOTES, 'UTF-8');
+    }
+
     /**
      * @param int    $cardId
      * @param string $text

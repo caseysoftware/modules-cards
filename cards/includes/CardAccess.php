@@ -213,6 +213,28 @@ class CCardAccess
     }
 
     /**
+     * The cards among $cardIds this user may see.
+     *
+     * @param int[] $cardIds
+     *
+     * @return int[]
+     */
+    public function visibleAmong(array $cardIds)
+    {
+        $ids = array_filter(array_map('intval', $cardIds));
+        if (!$ids) {
+            return array();
+        }
+        $q = new w2p_Database_Query();
+        $q->addTable('cards', 'c');
+        $q->addQuery('c.card_id');
+        $q->addWhere('c.card_id IN (' . implode(',', $ids) . ')');
+        $this->restrict($q);
+
+        return array_map('intval', $q->loadColumn());
+    }
+
+    /**
      * Whether the user may see this card.
      *
      * @param int $cardId

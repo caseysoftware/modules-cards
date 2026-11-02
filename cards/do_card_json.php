@@ -176,7 +176,7 @@ switch ($op) {
             case 'project':
                 // Reordering within the card's own project is fine; changing it is not.
                 if (null !== $value && (int) $value !== $projectId) {
-                    CCardJson::error(400, 'invalid', 'Cards can\'t be moved between projects. A card changes project only when its linked task moves.');
+                    CCardJson::error(400, 'invalid', 'Cards can\'t be dragged between projects. Open the card and use Move to… next to its project.');
                 }
                 break;
             default:
@@ -278,6 +278,115 @@ switch ($op) {
             'copied' => count($copied['map']),
             'skipped' => $copied['skipped'],
             'key' => CCardStore::key($copy),
+        ));
+        break;
+
+    case 'move_project_preview':
+        // What "Move to…" would do, both with and without the cards
+        // connected by dependencies, and where the card can go.
+        $card = $visibleCard($int('card_id'));
+        $projectId = (int) $card['card_project'];
+        $projects = array();
+        foreach ($access->visibleProjects(true) as $project) {
+            if ($project['id'] !== $projectId) {
+                $projects[] = array('id' => $project['id'], 'name' => $project['name']);
+            }
+        }
+        $describe = function ($withRelated) use ($card, $access) {
+            $plan = CCardStore::moveSet($card['card_id'], $withRelated);
+            $parents = array();
+            foreach ($plan['detached'] as $id) {
+                $row = CCardStore::load($id);
+                $parents[] = (int) $row['card_parent'];
+            }
+            $others = array_merge($parents, array_map(function ($p) { return $p[0]; }, $plan['cut']), array_map(function ($p) { return $p[1]; }, $plan['cut']));
+            $visible = array_flip($access->visibleAmong(array_merge($plan['cards'], $others)));
+            $related = array_flip($plan['related']);
+            $detached = array_flip($plan['detached']);
+            $inSet = array_flip($plan['cards']);
+            $cards = array();
+            $hidden = 0;
+            foreach ($plan['cards'] as $id) {
+                if (!isset($visible[$id])) {
+                    $hidden++;
+                    continue;
+                }
+                $row = CCardStore::load($id);
+                $parent = isset($detached[$id]) ? CCardStore::load((int) $row['card_parent']) : null;
+                $cards[] = array(
+                    'id' => $id,
+                    'key' => CCardStore::key($row),
+                    'name' => $row['card_name'],
+                    'task' => (int) $row['card_task'] ? CCardStore::taskLabel((int) $row['card_task']) : '',
+                    'related' => isset($related[$id]),
+                    'leaves_parent' => $parent ? (isset($visible[(int) $parent['card_id']]) ? CCardStore::label($parent) : 'a card you can\'t see') : '',
+                );
+            }
+            $cut = array();
+            foreach ($plan['cut'] as $pair) {
+                list($from, $to) = $pair;
+                $stays = isset($inSet[$from]) ? $to : $from;
+                $moves = isset($inSet[$from]) ? $from : $to;
+                $cut[] = array(
+                    'moving' => isset($visible[$moves]) ? CCardStore::key(CCardStore::load($moves)) : '',
+                    'staying' => isset($visible[$stays]) ? CCardStore::label(CCardStore::load($stays)) : 'a card you can\'t see',
+                    'waits' => $moves === $from, // the moving card waits on the one staying
+                );
+            }
+
+            return array(
+                'ids' => $plan['cards'],
+                'cards' => $cards,
+                'hidden' => $hidden,
+                'tasks' => count($plan['tasks']),
+                'cut' => $cut,
+                'too_many' => $plan['too_many'],
+            );
+        };
+        CCardJson::send(array('move' => array(
+            'card' => (int) $card['card_id'],
+            'project' => $projectId,
+            'project_name' => CCardStore::projectName($projectId),
+            'projects' => $projects,
+            'max' => CCardStore::MAX_MOVE,
+            'plain' => $describe(false),
+            'with_related' => $describe(true),
+        )));
+        break;
+
+    case 'move_project':
+        // Moves the card, its subcards and (when asked) the cards connected
+        // to them by dependencies to another active project. Task links are
+        // removed: tasks stay in their own project.
+        $requireRight('add');
+        $requireRight('edit');
+        $card = $visibleCard($int('card_id'));
+        $from = (int) $card['card_project'];
+        $withRelated = !empty($in['related']);
+        // Moving clears task links, so cards on tasks the user can't see
+        // would turn up for everyone in the new project: refuse.
+        $plan = CCardStore::moveSet($card['card_id'], $withRelated);
+        if (count($access->visibleAmong($plan['cards'])) < count($plan['cards'])) {
+            CCardJson::error(403, 'forbidden', 'Some of the cards that would move are on tasks you can\'t see. Ask someone who can see them to move this card.');
+        }
+        $to = $int('project_id');
+        $allowed = false;
+        foreach ($access->visibleProjects(true) as $project) {
+            $allowed = $allowed || $project['id'] === $to;
+        }
+        if (!$allowed || $to === $from) {
+            CCardJson::error(400, 'invalid', 'Pick another active project.', array('project' => 'Pick another active project.'));
+        }
+        $expected = isset($in['expected']) && is_array($in['expected']) ? $in['expected'] : null;
+        $moved = $store->moveToProject($card['card_id'], $int('version'), $to, $withRelated, $expected);
+        if (!$moved) {
+            $failed($store, $from);
+        }
+        $respond($from, array(
+            'moved' => count($moved),
+            'project_id' => $to,
+            'project_name' => CCardStore::projectName($to),
+            'key' => CCardStore::key(CCardStore::load($card['card_id'])),
         ));
         break;
 

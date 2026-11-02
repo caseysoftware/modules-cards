@@ -257,10 +257,15 @@
         }
     };
 
-    Board.prototype.toast = function (message, isError) {
-        var note = el('div', { className: 'w2p-cards-toast' + (isError ? ' is-error' : ''), text: message });
+    /** link: optional { href, text }, shown after the message (and kept up longer). */
+    Board.prototype.toast = function (message, isError, link) {
+        var note = el('div', { className: 'w2p-cards-toast' + (isError ? ' is-error' : '') }, [
+            message,
+            link ? ' ' : null,
+            link ? el('a', { href: link.href, text: link.text }) : null
+        ]);
         this.toastBox.appendChild(note);
-        setTimeout(function () { note.remove(); }, isError ? 7000 : 3500);
+        setTimeout(function () { note.remove(); }, (isError || link) ? 7000 : 3500);
     };
 
     // -------------------------------------------------------------- render
@@ -993,7 +998,10 @@
         addField('Linked task', taskSelect);
         grid.appendChild(el('div', { className: 'w2p-cards-field' }, [
             el('span', { className: 'w2p-cards-label', text: 'Project' }),
-            el('span', { className: 'w2p-cards-static', text: card.project_name, title: 'A card moves only with its linked task' })
+            el('span', { className: 'w2p-cards-static w2p-cards-project-row' }, [
+                el('span', { text: card.project_name }),
+                (edit && can.add) ? el('button', { type: 'button', className: 'w2p-cards-link', text: 'Move to…', onClick: function () { self.moveDialog(card); } }) : null
+            ])
         ]));
         drawer.appendChild(grid);
         if (card.task) {
@@ -1204,6 +1212,129 @@
                 var message = data.copied > 1 ? 'Copied ' + data.copied + ' cards as ' + data.key + '.' : 'Copied as ' + data.key + '.';
                 if (data.skipped) { message += ' ' + data.skipped + ' subcard(s) you can\'t see weren\'t copied.'; }
                 self.toast(message);
+            }).catch(function () {});
+        });
+    };
+
+    /**
+     * Move to another project: pick the project (and whether the cards
+     * connected by dependencies come too), then confirm what gets unlinked.
+     * The server's preview says what would move; the move itself checks the
+     * same cards still would.
+     */
+    Board.prototype.moveDialog = function (card) {
+        var self = this;
+        this.api('move_project_preview', { card_id: card.id }).then(function (preview) {
+            self.movePick(card, preview.move);
+        }).catch(function (err) { self.toast(err.message, true); });
+    };
+
+    Board.prototype.movePick = function (card, move) {
+        var self = this;
+        var hasRelated = move.with_related.ids.length > move.plain.ids.length;
+        var extra = move.with_related.ids.length - move.plain.ids.length;
+        var subs = move.plain.ids.length - 1;
+        if (!move.projects.length) {
+            this.dialog('Move ' + card.key, [el('p', { text: 'There\'s no other active project you can move this card to.' })], [{ label: 'Close', value: null }]);
+            return;
+        }
+        var project = el('select', { 'aria-label': 'Move to project' }, [option('', 'Pick a project', true)].concat(
+            move.projects.map(function (pr) { return option(pr.id, pr.name); })));
+        var related = el('input', { type: 'checkbox', checked: true, 'aria-label': 'Also move the cards connected by dependencies' });
+        var list = el('ul', { className: 'w2p-cards-movelist' });
+        var summary = el('p', { className: 'w2p-cards-muted' });
+        var error = el('p', { className: 'w2p-cards-error' });
+        var plan = function () { return (hasRelated && related.checked) ? move.with_related : move.plain; };
+        var refresh = function () {
+            var p = plan();
+            list.textContent = '';
+            p.cards.forEach(function (c) {
+                list.appendChild(el('li', {}, [
+                    c.key + ' ' + c.name,
+                    c.related ? el('span', { className: 'w2p-cards-muted', text: ' · connected by a dependency' }) : null,
+                    c.task ? el('span', { className: 'w2p-cards-muted', text: ' · task ' + c.task }) : null
+                ]));
+            });
+            var parts = [p.ids.length === 1 ? '1 card moves.' : p.ids.length + ' cards move.'];
+            if (p.tasks) { parts.push(p.tasks === 1 ? '1 loses its linked task.' : p.tasks + ' lose their linked task.'); }
+            if (p.cut.length) { parts.push(p.cut.length === 1 ? '1 dependency on a card that stays is removed.' : p.cut.length + ' dependencies on cards that stay are removed.'); }
+            summary.textContent = parts.join(' ');
+            error.textContent = '';
+        };
+        related.addEventListener('change', refresh);
+        project.addEventListener('change', function () { error.textContent = ''; });
+        refresh();
+
+        var what = subs ? 'Moves this card and its ' + (subs === 1 ? 'subcard' : subs + ' subcards') + ' to another active project.' : 'Moves this card to another active project.';
+        this.dialog('Move ' + card.key, [
+            el('p', { text: what }),
+            el('label', { className: 'w2p-cards-field' }, ['Project', project]),
+            hasRelated ? el('label', { className: 'w2p-cards-radio' }, [related, ' Also move the ' + (extra === 1 ? 'card' : extra + ' cards') + ' connected to ' + (subs ? 'them' : 'it') + ' by dependencies']) : null,
+            summary,
+            list,
+            error
+        ].filter(Boolean), [
+            {
+                label: 'Continue…', primary: true, value: function () {
+                    var p = plan();
+                    if (!project.value) { error.textContent = 'Pick a project.'; project.focus(); return false; }
+                    if (p.too_many) { error.textContent = 'A move can take at most ' + move.max + ' cards.'; return false; }
+                    if (p.hidden) {
+                        error.textContent = (p.hidden === 1 ? '1 card' : p.hidden + ' cards') + ' that would move ' + (p.hidden === 1 ? 'is' : 'are') + ' on tasks you can\'t see, so you can\'t move ' + (hasRelated && related.checked ? 'them. Try without the connected cards.' : 'this card.');
+                        return false;
+                    }
+                    var target = move.projects.filter(function (pr) { return String(pr.id) === project.value; })[0];
+                    return { project: target, related: hasRelated && related.checked, plan: p };
+                }
+            },
+            { label: 'Cancel', value: null }
+        ]).then(function (choice) {
+            if (choice) { self.moveConfirm(card, move, choice); }
+        });
+    };
+
+    Board.prototype.moveConfirm = function (card, move, choice) {
+        var self = this;
+        var p = choice.plan;
+        var count = p.ids.length;
+        var body = [];
+        var lost = p.cards.filter(function (c) { return c.task; });
+        if (lost.length) {
+            body.push(el('p', { text: (lost.length === 1 ? 'This card loses its linked task' : 'These cards lose their linked task') + ', because tasks stay in ' + move.project_name + ':' }));
+            body.push(el('ul', { className: 'w2p-cards-movelist' }, lost.map(function (c) { return el('li', { text: c.key + ' ' + c.name + ' · task ' + c.task }); })));
+        }
+        if (p.cut.length) {
+            body.push(el('p', { text: 'These dependencies on cards that stay in ' + move.project_name + ' are removed:' }));
+            body.push(el('ul', { className: 'w2p-cards-movelist' }, p.cut.map(function (d) {
+                return el('li', { text: d.waits ? d.moving + ' waits on ' + d.staying : d.staying + ' waits on ' + d.moving });
+            })));
+        }
+        p.cards.filter(function (c) { return c.leaves_parent; }).forEach(function (c) {
+            body.push(el('p', { text: c.key + ' leaves its parent card ' + c.leaves_parent + ' and becomes a top-level card.' }));
+        });
+        if (!body.length) {
+            body.push(el('p', { text: count === 1
+                ? 'Nothing gets unlinked: the card has no linked task and no ties to cards that stay.'
+                : 'Nothing gets unlinked: none of these cards has a linked task or ties to cards that stay.' }));
+        }
+        body.push(el('p', { className: 'w2p-cards-muted', text: 'Comments, tags, activity and repeats move with the cards. Card numbers stay the same; keys take the new project\'s short name.' }));
+
+        this.dialog('Move ' + (count === 1 ? card.key : count + ' cards') + ' to ' + choice.project.name + '?', body, [
+            { label: count === 1 ? 'Move card' : 'Move ' + count + ' cards', primary: true, value: true },
+            { label: 'Back', value: 'back' },
+            { label: 'Cancel', value: null }
+        ]).then(function (answer) {
+            if (answer === 'back') { self.movePick(card, move); return; }
+            if (answer !== true) { return; }
+            self.change('move_project', {
+                card_id: card.id, version: card.version, project_id: choice.project.id,
+                related: choice.related, expected: p.ids
+            }).then(function (data) {
+                // On the old project's board the card is gone: close its panel.
+                if (!self.cards[card.id]) { self.closeDrawer(); }
+                var message = (data.moved === 1 ? 'Moved to ' : 'Moved ' + data.moved + ' cards to ') + data.project_name + ' as ' + data.key + '.';
+                var link = self.isAll ? null : { href: self.options.boardUrl + '&project_id=' + data.project_id, text: 'Open its board' };
+                self.toast(message, false, link);
             }).catch(function () {});
         });
     };

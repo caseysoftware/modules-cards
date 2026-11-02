@@ -188,3 +188,9 @@
 .w2p-cards-day { display: inline-flex; gap: 4px; align-items: center; color: var(--cards-ink); }
 .w2p-cards-repeats { color: var(--cards-accent-ink); }
 .w2p-cards-repeats.is-paused { color: var(--cards-red); }
+
+/* Move to another project */
+.w2p-cards-project-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.w2p-cards-movelist { margin: 4px 0 8px; padding-left: 18px; max-height: 180px; overflow-y: auto; color: var(--cards-ink); }
+.w2p-cards-movelist li { margin: 2px 0; overflow-wrap: anywhere; }
+.w2p-cards-toast a { color: #fff; font-weight: 600; text-decoration: underline; }

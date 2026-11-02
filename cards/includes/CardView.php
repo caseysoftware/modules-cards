@@ -7,7 +7,7 @@
  */
 class CCardView
 {
-    const VERSION = '0.4.0';
+    const VERSION = '0.4.1';
 
     /** @var bool */
     protected static $assetsDone = false;
